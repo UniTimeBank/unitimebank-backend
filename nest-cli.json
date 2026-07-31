@@ -1,14 +1,13 @@
 {
   "$schema": "https://json.schemastore.org/nest-cli",
   "collection": "@nestjs/schematics",
-  "sourceRoot": "apps/unitimebank-backend/src",
+  "sourceRoot": "apps",
   "compilerOptions": {
     "deleteOutDir": true,
-    "webpack": true,
-    "tsConfigPath": "apps/unitimebank-backend/tsconfig.app.json"
+    "webpack": false,
+    "tsConfigPath": "tsconfig.json"
   },
   "monorepo": true,
-  "root": "apps/unitimebank-backend",
   "projects": {
     "api-gateway": {
       "type": "application",
@@ -89,15 +88,6 @@
       "sourceRoot": "apps/session/src",
       "compilerOptions": {
         "tsConfigPath": "apps/session/tsconfig.app.json"
-      }
-    },
-    "unitimebank-backend": {
-      "type": "application",
-      "root": "apps/unitimebank-backend",
-      "entryFile": "main",
-      "sourceRoot": "apps/unitimebank-backend/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/unitimebank-backend/tsconfig.app.json"
       }
     },
     "user": {

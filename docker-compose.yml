@@ -1,0 +1,220 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: unitimebank_rabbitmq
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+
+  redis:
+    image: redis:7-alpine
+    container_name: unitimebank_redis
+    ports:
+      - '6379:6379'
+
+  api-gateway:
+    image: node:22-alpine
+    container_name: unitimebank_api_gateway
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx nest start api-gateway --watch"
+    environment:
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
+    ports:
+      - '3000:3000'
+    depends_on:
+      - rabbitmq
+      - redis
+
+  auth:
+    image: node:22-alpine
+    container_name: unitimebank_auth
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx nest start auth --watch"
+    environment:
+      SERVICE_NAME: auth
+      PORT: 3001
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-neondb}
+      DB_SSL: ${DB_SSL:-true}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - '3001:3001'
+    depends_on:
+      - rabbitmq
+      - redis
+
+  user:
+    image: node:22-alpine
+    container_name: unitimebank_user
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx nest start user --watch"
+    environment:
+      SERVICE_NAME: user
+      PORT: 3002
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-neondb}
+      DB_SSL: ${DB_SSL:-true}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3002:3002'
+    depends_on:
+      - rabbitmq
+      - redis
+
+  post:
+    image: node:22-alpine
+    container_name: unitimebank_post
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx nest start post --watch"
+    environment:
+      SERVICE_NAME: post
+      PORT: 3003
+      MONGO_URL: ${MONGO_URL}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3003:3003'
+    depends_on:
+      - rabbitmq
+      - redis
+
+  booking:
+    image: node:22-alpine
+    container_name: unitimebank_booking
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx nest start booking --watch"
+    environment:
+      SERVICE_NAME: booking
+      PORT: 3004
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-neondb}
+      DB_SSL: ${DB_SSL:-true}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3004:3004'
+    depends_on:
+      - rabbitmq
+      - redis
+
+  session:
+    image: node:22-alpine
+    container_name: unitimebank_session
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx nest start session --watch"
+    environment:
+      SERVICE_NAME: session
+      PORT: 3005
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-neondb}
+      DB_SSL: ${DB_SSL:-true}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3005:3005'
+    depends_on:
+      - rabbitmq
+      - redis
+
+  wallet:
+    image: node:22-alpine
+    container_name: unitimebank_wallet
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx nest start wallet --watch"
+    environment:
+      SERVICE_NAME: wallet
+      PORT: 3006
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-neondb}
+      DB_SSL: ${DB_SSL:-true}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3006:3006'
+    depends_on:
+      - rabbitmq
+      - redis
+
+  moderation:
+    image: node:22-alpine
+    container_name: unitimebank_moderation
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx nest start moderation --watch"
+    environment:
+      SERVICE_NAME: moderation
+      PORT: 3007
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-neondb}
+      DB_SSL: ${DB_SSL:-true}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3007:3007'
+    depends_on:
+      - rabbitmq
+      - redis
+
+  notification:
+    image: node:22-alpine
+    container_name: unitimebank_notification
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx nest start notification --watch"
+    environment:
+      SERVICE_NAME: notification
+      PORT: 3008
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-neondb}
+      DB_SSL: ${DB_SSL:-true}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '3008:3008'
+    depends_on:
+      - rabbitmq
+      - redis
