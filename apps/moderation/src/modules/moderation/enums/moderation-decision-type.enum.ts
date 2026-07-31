@@ -1,0 +1,7 @@
+export enum ModerationDecisionType {
+  NO_ACTION = 'NO_ACTION',
+  WARN = 'WARN',
+  REMOVE_CONTENT = 'REMOVE_CONTENT',
+  DEDUCT_TRUST = 'DEDUCT_TRUST',
+  LOCK_ACCOUNT = 'LOCK_ACCOUNT',
+}

@@ -1,0 +1,6 @@
+export enum ConnectionStatus {
+  ONLINE = 'ONLINE',
+  RECONNECTING = 'RECONNECTING',
+  DISCONNECTED = 'DISCONNECTED',
+  KICKED = 'KICKED',
+}

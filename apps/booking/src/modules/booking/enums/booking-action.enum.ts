@@ -1,0 +1,9 @@
+export enum BookingAction {
+  CREATE = 'CREATE',
+  ACCEPT = 'ACCEPT',
+  REJECT = 'REJECT',
+  CANCEL = 'CANCEL',
+  MARK_NO_SHOW = 'MARK_NO_SHOW',
+  START = 'START',
+  COMPLETE = 'COMPLETE',
+}

@@ -1,0 +1,10 @@
+export enum SkillCategoryName {
+  PROGRAMMING = 'PROGRAMMING',
+  LANGUAGE = 'LANGUAGE',
+  DESIGN = 'DESIGN',
+  SOFT_SKILLS = 'SOFT_SKILLS',
+  MUSIC = 'MUSIC',
+  SPORTS = 'SPORTS',
+  BUSINESS = 'BUSINESS',
+  OTHER = 'OTHER',
+}

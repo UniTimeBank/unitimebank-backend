@@ -1,0 +1,6 @@
+export enum AfkOutcome {
+  PENDING = 'PENDING',
+  CONFIRMED = 'CONFIRMED',
+  AUTO_ENDED = 'AUTO_ENDED',
+  EXPIRED = 'EXPIRED',
+}
