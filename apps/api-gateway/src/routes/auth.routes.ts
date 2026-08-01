@@ -1,7 +1,7 @@
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthClient } from '../clients/auth.client';
-import { RegisterDto, LoginDto, VerifyOtpDto } from '@app/contracts/auth';
+import { RegisterDto, LoginDto, VerifyOtpDto, GoogleAuthDto, SetPasswordDto } from '@app/contracts/auth';
 
 @ApiTags('Auth - Xác thực')
 @Controller('auth')
@@ -79,6 +79,24 @@ export class AuthRoutes {
   @ApiResponse({ status: 401, description: 'Email hoặc mật khẩu không đúng' })
   async login(@Body() dto: LoginDto) {
     return this.authClient.login(dto);
+  }
+
+  /** Đăng nhập hoặc đăng ký bằng Google */
+  @Post('google')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Đăng nhập Google' })
+  @ApiBody({ type: GoogleAuthDto })
+  async googleLogin(@Body() dto: GoogleAuthDto) {
+    return this.authClient.googleLogin(dto);
+  }
+
+  /** Thiết lập hoặc đổi mật khẩu mới cho tài khoản */
+  @Post('set-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Thiết lập mật khẩu' })
+  @ApiBody({ type: SetPasswordDto })
+  async setPassword(@Body() dto: SetPasswordDto & { userId: string }) {
+    return this.authClient.setPassword(dto);
   }
 
   /** Làm mới access token bằng refresh token */

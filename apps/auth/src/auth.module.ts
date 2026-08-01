@@ -10,6 +10,7 @@ import {
   OtpRecord,
   RefreshToken,
   AuthSession,
+  OAuthCredential,
 } from './modules/auth/entities';
 
 @Module({
@@ -28,12 +29,18 @@ import {
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME || 'auth_db',
-      entities: [UserAccount, OtpRecord, RefreshToken, AuthSession],
+      entities: [UserAccount, OtpRecord, RefreshToken, AuthSession, OAuthCredential],
       synchronize: true,
       ssl: process.env.DB_SSL === 'true',
       extra: process.env.DB_SSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {},
     }),
-    TypeOrmModule.forFeature([UserAccount, OtpRecord, RefreshToken, AuthSession]),
+    TypeOrmModule.forFeature([
+      UserAccount,
+      OtpRecord,
+      RefreshToken,
+      AuthSession,
+      OAuthCredential,
+    ]),
   ],
   controllers: [AuthController],
   providers: [AuthService],

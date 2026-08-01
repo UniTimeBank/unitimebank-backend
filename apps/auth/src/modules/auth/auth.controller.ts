@@ -6,7 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, VerifyOtpDto } from '@app/contracts/auth';
+import { RegisterDto, LoginDto, VerifyOtpDto, GoogleAuthDto, SetPasswordDto } from '@app/contracts/auth';
 
 @Controller('auth')
 export class AuthController {
@@ -27,6 +27,18 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('google')
+  @HttpCode(HttpStatus.OK)
+  async googleLogin(@Body() dto: GoogleAuthDto) {
+    return this.authService.googleLogin(dto);
+  }
+
+  @Post('set-password')
+  @HttpCode(HttpStatus.OK)
+  async setPassword(@Body() body: { userId: string; newPassword: string }) {
+    return this.authService.setPassword(body.userId, { newPassword: body.newPassword });
   }
 
   @Post('refresh')

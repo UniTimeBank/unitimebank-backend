@@ -7,7 +7,6 @@ import { otpTemplate, welcomeTemplate } from './templates';
 @Injectable()
 export class EmailService {
   private transporter: nodemailer.Transporter;
-  private logoUrl: string;
 
   constructor() {
     this.transporter = nodemailer.createTransport({
@@ -19,36 +18,41 @@ export class EmailService {
         pass: process.env.EMAIL_PASS,
       },
     });
-
-    this.logoUrl = this.loadLogo();
   }
 
-  private loadLogo(): string {
-    try {
-      const logoPath = path.join(__dirname, '../assets/Logo.png');
-      if (fs.existsSync(logoPath)) {
-        const logoBuffer = fs.readFileSync(logoPath);
-        return `data:image/png;base64,${logoBuffer.toString('base64')}`;
+  private getLogoPath(): string | null {
+    const possiblePaths = [
+      path.resolve(process.cwd(), 'libs/common/src/assets/Logo_white.png'),
+      path.join(__dirname, '../assets/Logo_white.png'),
+      path.join(__dirname, '../../assets/Logo_white.png'),
+    ];
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        return p;
       }
-    } catch (e) {
-      console.warn('[EMAIL] Logo not found');
     }
-    return '';
+    return null;
   }
 
   async sendOtp(email: string, otp: string, purpose: 'REGISTER' | 'FORGOT_PASSWORD') {
     const subject = purpose === 'REGISTER'
-      ? 'Mã xác thực đăng ký tài khoản Unitimebank'
-      : 'Mã đặt lại mật khẩu Unitimebank';
+      ? 'Mã xác thực đăng ký tài khoản UniTime Bank'
+      : 'Mã đặt lại mật khẩu UniTime Bank';
 
-    const html = otpTemplate(otp, purpose, this.logoUrl);
+    const logoPath = this.getLogoPath();
+    const attachments = logoPath
+      ? [{ filename: 'Logo_white.png', path: logoPath, cid: 'logo', contentDisposition: 'inline' as const }]
+      : [];
+
+    const html = otpTemplate(otp, purpose, logoPath ? 'cid:logo' : '');
 
     try {
       await this.transporter.sendMail({
-        from: `"Unitimebank" <${process.env.EMAIL_USER}>`,
+        from: `"UniTime Bank" <${process.env.EMAIL_USER}>`,
         to: email,
         subject,
         html,
+        attachments,
       });
       console.log(`[EMAIL] Đã gửi OTP đến ${email}`);
     } catch (error) {
@@ -58,14 +62,20 @@ export class EmailService {
 
   async sendWelcome(email: string, displayName?: string) {
     const firstName = displayName ? displayName.split(' ')[0] : 'bạn';
-    const html = welcomeTemplate(firstName, this.logoUrl);
+    const logoPath = this.getLogoPath();
+    const attachments = logoPath
+      ? [{ filename: 'Logo_white.png', path: logoPath, cid: 'logo', contentDisposition: 'inline' as const }]
+      : [];
+
+    const html = welcomeTemplate(firstName, logoPath ? 'cid:logo' : '');
 
     try {
       await this.transporter.sendMail({
-        from: `"Unitimebank" <${process.env.EMAIL_USER}>`,
+        from: `"UniTime Bank" <${process.env.EMAIL_USER}>`,
         to: email,
-        subject: '🎉 Chào mừng bạn đến với Unitimebank!',
+        subject: '🎉 Chào mừng bạn đến với UniTime Bank!',
         html,
+        attachments,
       });
       console.log(`[EMAIL] Đã gửi email chào mừng đến ${email}`);
     } catch (error) {

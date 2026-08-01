@@ -1,13 +1,17 @@
 export const otpTemplate = (otp: string, purpose: 'REGISTER' | 'FORGOT_PASSWORD', logoUrl: string): string => {
   const subject = purpose === 'REGISTER'
-    ? 'Ma xac thuc dang ky tai khoan Unitimebank'
-    : 'Ma dat lai mat khau Unitimebank';
+    ? 'Mã xác thực đăng ký tài khoản UniTime Bank'
+    : 'Mã đặt lại mật khẩu UniTime Bank';
 
   const bodyText = purpose === 'REGISTER'
-    ? 'Cam on ban da dang ky tai khoan Unitimebank. Vui long su dung ma OTP ben duoi de xac thuc email cua ban:'
-    : 'Chung toi da nhan duoc yeu cau dat lai mat khau cho tai khoan cua ban. Vui long su dung ma OTP ben duoi:';
+    ? 'Cảm ơn bạn đã đăng ký tài khoản UniTime Bank. Vui lòng sử dụng mã OTP bên dưới để xác thực email của bạn:'
+    : 'Chúng tôi đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Vui lòng sử dụng mã OTP bên dưới:';
 
-  const html = `
+  const logoHtml = logoUrl
+    ? `<img src="${logoUrl}" alt="UniTime Bank" width="90" style="display: block; margin: 0 auto 12px;" />`
+    : `<h1 style="color: #ffffff; margin: 0 0 8px; font-size: 24px; font-weight: bold; font-family: Arial, sans-serif;">UniTime Bank</h1>`;
+
+  return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -23,9 +27,9 @@ export const otpTemplate = (otp: string, purpose: 'REGISTER' | 'FORGOT_PASSWORD'
           <!-- Header -->
           <tr>
             <td style="background-color: #006B58; padding: 36px 32px; text-align: center;">
-              <img src="${logoUrl}" alt="Unitimebank" width="90" style="display: block; margin: 0 auto 12px;" />
+              ${logoHtml}
               <p style="color: #ffffff; margin: 0; font-size: 14px; opacity: 0.9; font-family: Arial, sans-serif;">
-                Doi credit, ket noi tri thuc
+                Đổi credit, kết nối tri thức
               </p>
             </td>
           </tr>
@@ -34,7 +38,7 @@ export const otpTemplate = (otp: string, purpose: 'REGISTER' | 'FORGOT_PASSWORD'
           <tr>
             <td style="padding: 40px 32px 32px;">
               <h2 style="color: #1a1a1a; margin: 0 0 8px; font-size: 24px; font-family: Arial, sans-serif;">
-                Xin chao!
+                Xin chào!
               </h2>
               <p style="color: #4a4a4a; font-size: 15px; line-height: 1.7; margin: 0 0 28px; font-family: Arial, sans-serif;">
                 ${bodyText}
@@ -58,8 +62,8 @@ export const otpTemplate = (otp: string, purpose: 'REGISTER' | 'FORGOT_PASSWORD'
               <!-- Warning -->
               <div style="background-color: #fef3cd; border-radius: 8px; padding: 16px 20px; margin-top: 24px;">
                 <p style="color: #856404; font-size: 13px; line-height: 1.6; margin: 0; font-family: Arial, sans-serif;">
-                  <strong>Ma co hieu luc trong 5 phut.</strong><br>
-                  Vui long khong chia se ma nay voi bat ky ai.
+                  <strong>Mã có hiệu lực trong 5 phút.</strong><br>
+                  Vui lòng không chia sẻ mã này với bất kỳ ai.
                 </p>
               </div>
             </td>
@@ -76,8 +80,8 @@ export const otpTemplate = (otp: string, purpose: 'REGISTER' | 'FORGOT_PASSWORD'
           <tr>
             <td style="padding: 24px 32px; background-color: #fafafa;">
               <p style="color: #999999; font-size: 12px; line-height: 1.6; margin: 0; text-align: center; font-family: Arial, sans-serif;">
-                Neu ban khong yeu cau ma nay, vui long bo qua email nay.<br>
-                © ${new Date().getFullYear()} Unitimebank
+                Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email này.<br>
+                © ${new Date().getFullYear()} UniTime Bank
               </p>
             </td>
           </tr>
@@ -89,6 +93,4 @@ export const otpTemplate = (otp: string, purpose: 'REGISTER' | 'FORGOT_PASSWORD'
 </body>
 </html>
   `;
-
-  return html;
 };

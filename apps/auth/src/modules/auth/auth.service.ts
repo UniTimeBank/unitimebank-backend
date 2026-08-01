@@ -10,17 +10,21 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { JwtService } from '@nestjs/jwt';
+import { OAuth2Client } from 'google-auth-library';
 import { EmailService } from '@app/common/email';
 import { UserAccount } from './entities/user-account.entity';
 import { OtpRecord } from './entities/otp-record.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { AuthSession } from './entities/auth-session.entity';
+import { OAuthCredential } from './entities/oauth-credential.entity';
 import { Role, AccountStatus, OtpPurpose } from './enums';
-import { RegisterDto, LoginDto, VerifyOtpDto } from '@app/contracts/auth';
+import { RegisterDto, LoginDto, VerifyOtpDto, GoogleAuthDto, SetPasswordDto } from '@app/contracts/auth';
 
 @Injectable()
 export class AuthService {
   private readonly OTP_EXPIRY = 5 * 60;
   private readonly MAX_OTP_ATTEMPTS = 5;
+  private readonly googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
   constructor(
     @InjectRepository(UserAccount)
@@ -29,6 +33,10 @@ export class AuthService {
     private readonly otpRepo: Repository<OtpRecord>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepo: Repository<RefreshToken>,
+    @InjectRepository(AuthSession)
+    private readonly authSessionRepo: Repository<AuthSession>,
+    @InjectRepository(OAuthCredential)
+    private readonly oauthCredentialRepo: Repository<OAuthCredential>,
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
   ) {}
@@ -88,9 +96,12 @@ export class AuthService {
       { consumed: true },
     );
 
-    // Gửi email chào mừng khi đăng ký thành công
+    // Ghi lại AuthSession vào bảng auth_session
+    await this.recordSession(userAccount.id);
+
+    // Gửi email chào mừng khi đăng ký thành công (bất đồng bộ không block response)
     if (dto.purpose === OtpPurpose.REGISTER) {
-      await this.emailService.sendWelcome(dto.email);
+      this.emailService.sendWelcome(dto.email).catch(() => {});
     }
 
     return {
@@ -130,6 +141,9 @@ export class AuthService {
 
     const { accessToken, refreshToken } = await this.generateTokens(userAccount);
 
+    // Ghi lại AuthSession vào bảng auth_session
+    await this.recordSession(userAccount.id);
+
     return {
       accessToken,
       refreshToken,
@@ -139,6 +153,153 @@ export class AuthService {
         email: userAccount.email,
         role: userAccount.role,
       },
+    };
+  }
+
+  // ==================== ĐĂNG NHẬP GOOGLE ====================
+
+  async googleLogin(dto: GoogleAuthDto) {
+    let email: string = '';
+    let googleSubId: string = '';
+    let name: string | undefined = dto.displayName;
+
+    try {
+      if (process.env.GOOGLE_CLIENT_ID) {
+        const ticket = await this.googleClient.verifyIdToken({
+          idToken: dto.idToken,
+          audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        if (payload && payload.email) {
+          email = payload.email;
+          googleSubId = payload.sub || payload.email;
+          name = name || payload.name;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
+    if (!email) {
+      try {
+        const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${dto.idToken}`);
+        if (res.ok) {
+          const payload = await res.json();
+          if (payload.email) {
+            email = payload.email;
+            googleSubId = payload.sub || payload.email;
+            name = name || payload.name;
+          }
+        }
+      } catch {
+        // Fallback userinfo
+      }
+    }
+
+    if (!email) {
+      try {
+        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${dto.idToken}` },
+        });
+        if (res.ok) {
+          const profile = await res.json();
+          if (profile.email) {
+            email = profile.email;
+            googleSubId = profile.sub || profile.email;
+            name = name || profile.name;
+          }
+        }
+      } catch {
+        // Error
+      }
+    }
+
+    if (!email) {
+      throw new UnauthorizedException('Xác thực Token Google thất bại hoặc không thể lấy email');
+    }
+
+    let isNewUser = false;
+    let userAccount = await this.userAccountRepo.findOne({
+      where: { email },
+    });
+
+    if (!userAccount) {
+      isNewUser = true;
+      const randomPassword = crypto.randomBytes(16).toString('hex');
+      const passwordHash = await bcrypt.hash(randomPassword, 12);
+
+      userAccount = this.userAccountRepo.create({
+        email,
+        passwordHash,
+        role: Role.USER,
+        status: AccountStatus.ACTIVE,
+        trustScore: 50,
+      });
+      await this.userAccountRepo.save(userAccount);
+
+      this.emailService.sendWelcome(email, name).catch(() => {});
+    } else {
+      if (userAccount.status === AccountStatus.PENDING_VERIFY) {
+        userAccount.status = AccountStatus.ACTIVE;
+        await this.userAccountRepo.save(userAccount);
+      }
+      if (userAccount.status === AccountStatus.LOCKED) {
+        throw new UnauthorizedException('Tài khoản đã bị khóa');
+      }
+    }
+
+    // Ghi lại thông tin OAuth Credential vào bảng oauth_credential
+    let oauthCred = await this.oauthCredentialRepo.findOne({
+      where: { userId: userAccount.id, provider: 'google' },
+    });
+    if (!oauthCred) {
+      oauthCred = this.oauthCredentialRepo.create({
+        userId: userAccount.id,
+        provider: 'google',
+        providerUserId: googleSubId || email,
+      });
+      await this.oauthCredentialRepo.save(oauthCred);
+    }
+
+    // Ghi lại AuthSession vào bảng auth_session
+    await this.recordSession(userAccount.id);
+
+    const { accessToken, refreshToken } = await this.generateTokens(userAccount);
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 86400,
+      isNewUser,
+      user: {
+        id: userAccount.id,
+        email: userAccount.email,
+        role: userAccount.role,
+        status: userAccount.status,
+      },
+    };
+  }
+
+  // ==================== THIẾT LẬP MẬT KHẨU ====================
+
+  async setPassword(userId: string, dto: SetPasswordDto) {
+    const userAccount = await this.userAccountRepo.findOne({
+      where: { id: userId },
+    });
+    if (!userAccount) {
+      throw new NotFoundException('Không tìm thấy tài khoản người dùng');
+    }
+
+    if (userAccount.status === AccountStatus.LOCKED) {
+      throw new UnauthorizedException('Tài khoản đã bị khóa');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 12);
+    userAccount.passwordHash = passwordHash;
+    await this.userAccountRepo.save(userAccount);
+
+    return {
+      message: 'Thiết lập mật khẩu thành công. Bây giờ bạn có thể đăng nhập bằng email và mật khẩu mới.',
     };
   }
 
@@ -193,6 +354,22 @@ export class AuthService {
   }
 
   // ==================== HÀM HỖ TRỢ ====================
+
+  private async recordSession(userId: string, deviceId = 'web-browser', ipAddress = '127.0.0.1', userAgent = 'Web Client') {
+    try {
+      const session = this.authSessionRepo.create({
+        userId,
+        deviceId,
+        ipAddress,
+        userAgent,
+        lastSeenAt: new Date(),
+        inRoom: false,
+      });
+      await this.authSessionRepo.save(session);
+    } catch (e) {
+      console.error('Lỗi khi lưu auth_session:', e);
+    }
+  }
 
   private generateOtp(): string {
     return crypto.randomInt(100000, 999999).toString();
