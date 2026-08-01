@@ -1,0 +1,265 @@
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
+import { JwtService } from '@nestjs/jwt';
+import { EmailService } from '@app/common/email';
+import { UserAccount } from './entities/user-account.entity';
+import { OtpRecord } from './entities/otp-record.entity';
+import { RefreshToken } from './entities/refresh-token.entity';
+import { Role, AccountStatus, OtpPurpose } from './enums';
+import { RegisterDto, LoginDto, VerifyOtpDto } from '@app/contracts/auth';
+
+@Injectable()
+export class AuthService {
+  private readonly OTP_EXPIRY = 5 * 60;
+  private readonly MAX_OTP_ATTEMPTS = 5;
+
+  constructor(
+    @InjectRepository(UserAccount)
+    private readonly userAccountRepo: Repository<UserAccount>,
+    @InjectRepository(OtpRecord)
+    private readonly otpRepo: Repository<OtpRecord>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokenRepo: Repository<RefreshToken>,
+    private readonly jwtService: JwtService,
+    private readonly emailService: EmailService,
+  ) {}
+
+  // ==================== ĐĂNG KÝ ====================
+
+  async register(dto: RegisterDto) {
+    const existing = await this.userAccountRepo.findOne({
+      where: { email: dto.email },
+    });
+    if (existing) {
+      throw new ConflictException('Email đã được đăng ký');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const userAccount = this.userAccountRepo.create({
+      email: dto.email,
+      passwordHash,
+      role: Role.USER,
+      status: AccountStatus.PENDING_VERIFY,
+      trustScore: 50,
+    });
+    await this.userAccountRepo.save(userAccount);
+
+    const otp = this.generateOtp();
+    await this.saveOtp(dto.email, otp, OtpPurpose.REGISTER);
+
+    // Gửi OTP qua email
+    await this.emailService.sendOtp(dto.email, otp, 'REGISTER');
+
+    return {
+      message: 'Đã gửi mã OTP đến email của bạn',
+      email: dto.email,
+    };
+  }
+
+  async verifyOtp(dto: VerifyOtpDto) {
+    const userAccount = await this.userAccountRepo.findOne({
+      where: { email: dto.email },
+    });
+    if (!userAccount) {
+      throw new NotFoundException('Không tìm thấy người dùng');
+    }
+
+    const isValid = await this.verifyOtpCode(dto.email, dto.code, dto.purpose);
+    if (!isValid) {
+      throw new BadRequestException('Mã OTP không hợp lệ hoặc đã hết hạn');
+    }
+
+    userAccount.status = AccountStatus.ACTIVE;
+    await this.userAccountRepo.save(userAccount);
+
+    const { accessToken, refreshToken } = await this.generateTokens(userAccount);
+
+    await this.otpRepo.update(
+      { email: dto.email, purpose: dto.purpose, consumed: false },
+      { consumed: true },
+    );
+
+    // Gửi email chào mừng khi đăng ký thành công
+    if (dto.purpose === OtpPurpose.REGISTER) {
+      await this.emailService.sendWelcome(dto.email);
+    }
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 86400,
+      user: {
+        id: userAccount.id,
+        email: userAccount.email,
+        role: userAccount.role,
+        status: userAccount.status,
+      },
+    };
+  }
+
+  // ==================== ĐĂNG NHẬP ====================
+
+  async login(dto: LoginDto) {
+    const userAccount = await this.userAccountRepo.findOne({
+      where: { email: dto.email },
+    });
+    if (!userAccount) {
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
+
+    if (userAccount.status === AccountStatus.LOCKED) {
+      throw new UnauthorizedException('Tài khoản đã bị khóa');
+    }
+    if (userAccount.status === AccountStatus.PENDING_VERIFY) {
+      throw new UnauthorizedException('Vui lòng xác thực email trước');
+    }
+
+    const isPasswordValid = await bcrypt.compare(dto.password, userAccount.passwordHash);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
+
+    const { accessToken, refreshToken } = await this.generateTokens(userAccount);
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 86400,
+      user: {
+        id: userAccount.id,
+        email: userAccount.email,
+        role: userAccount.role,
+      },
+    };
+  }
+
+  // ==================== LÀM MỚI TOKEN ====================
+
+  async refreshToken(refreshToken: string) {
+    try {
+      this.jwtService.verify(refreshToken, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      const storedToken = await this.refreshTokenRepo.findOne({
+        where: { tokenHash: this.hashToken(refreshToken), revoked: false },
+      });
+
+      if (!storedToken || storedToken.expiresAt < new Date()) {
+        throw new UnauthorizedException('Refresh token không hợp lệ');
+      }
+
+      const userAccount = await this.userAccountRepo.findOne({
+        where: { id: storedToken.userId },
+      });
+      if (!userAccount) {
+        throw new UnauthorizedException('Không tìm thấy người dùng');
+      }
+
+      storedToken.revoked = true;
+      await this.refreshTokenRepo.save(storedToken);
+
+      const tokens = await this.generateTokens(userAccount);
+
+      return {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: 86400,
+      };
+    } catch {
+      throw new UnauthorizedException('Refresh token không hợp lệ');
+    }
+  }
+
+  // ==================== ĐĂNG XUẤT ====================
+
+  async logout(refreshToken: string) {
+    if (refreshToken) {
+      await this.refreshTokenRepo.update(
+        { tokenHash: this.hashToken(refreshToken), revoked: false },
+        { revoked: true },
+      );
+    }
+    return { message: 'Đăng xuất thành công' };
+  }
+
+  // ==================== HÀM HỖ TRỢ ====================
+
+  private generateOtp(): string {
+    return crypto.randomInt(100000, 999999).toString();
+  }
+
+  private async saveOtp(email: string, code: string, purpose: OtpPurpose) {
+    await this.otpRepo.update({ email, purpose }, { consumed: true });
+
+    const otp = this.otpRepo.create({
+      email,
+      code: await bcrypt.hash(code, 10),
+      purpose,
+      expiresAt: new Date(Date.now() + this.OTP_EXPIRY * 1000),
+      attempts: 0,
+      consumed: false,
+    });
+    await this.otpRepo.save(otp);
+  }
+
+  private async verifyOtpCode(email: string, code: string, purpose: OtpPurpose): Promise<boolean> {
+    const otp = await this.otpRepo.findOne({
+      where: { email, purpose, consumed: false },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!otp || otp.expiresAt < new Date()) {
+      return false;
+    }
+
+    if (otp.attempts >= this.MAX_OTP_ATTEMPTS) {
+      return false;
+    }
+
+    const isValid = await bcrypt.compare(code, otp.code);
+    if (!isValid) {
+      otp.attempts += 1;
+      await this.otpRepo.save(otp);
+      return false;
+    }
+
+    return true;
+  }
+
+  private async generateTokens(user: UserAccount) {
+    const accessToken = this.jwtService.sign(
+      { sub: user.id, email: user.email, role: user.role },
+      { expiresIn: (process.env.JWT_ACCESS_EXPIRY || '1d') as any },
+    );
+
+    const refreshToken = this.jwtService.sign(
+      { sub: user.id },
+      { expiresIn: (process.env.JWT_REFRESH_EXPIRY || '7d') as any },
+    );
+
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await this.refreshTokenRepo.save({
+      userId: user.id,
+      deviceId: 'default',
+      tokenHash: this.hashToken(refreshToken),
+      expiresAt,
+      revoked: false,
+    });
+
+    return { accessToken, refreshToken };
+  }
+
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+}

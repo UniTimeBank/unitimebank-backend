@@ -1,13 +1,26 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { UserAccount, OtpRecord, RefreshToken, AuthSession, OAuthCredential, PasswordResetTicket } from './modules/auth/entities';
+import { JwtModule } from '@nestjs/jwt';
+import { CommonModule } from '@app/common';
+import { AuthController } from './modules/auth/auth.controller';
+import { AuthService } from './modules/auth/auth.service';
+import {
+  UserAccount,
+  OtpRecord,
+  RefreshToken,
+  AuthSession,
+} from './modules/auth/entities';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    CommonModule,
+    JwtModule.register({
+      global: true,
+      secret: process.env.JWT_SECRET || 'default-secret',
+      signOptions: { expiresIn: '1d' },
+    }),
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
@@ -15,13 +28,15 @@ import { UserAccount, OtpRecord, RefreshToken, AuthSession, OAuthCredential, Pas
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME || 'auth_db',
-      entities: [UserAccount, OtpRecord, RefreshToken, AuthSession, OAuthCredential, PasswordResetTicket],
+      entities: [UserAccount, OtpRecord, RefreshToken, AuthSession],
       synchronize: true,
       ssl: process.env.DB_SSL === 'true',
       extra: process.env.DB_SSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {},
     }),
+    TypeOrmModule.forFeature([UserAccount, OtpRecord, RefreshToken, AuthSession]),
   ],
   controllers: [AuthController],
   providers: [AuthService],
+  exports: [AuthService],
 })
 export class AuthModule {}
