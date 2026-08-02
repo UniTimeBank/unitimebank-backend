@@ -32,6 +32,13 @@ export class UserProfileService {
       bio: profile.bio,
       trustScore: profile.trustScore,
       onboardingCompleted: profile.onboardingCompleted,
+      skills: (profile.skills || []).map((s) => ({
+        id: s.id,
+        skillName: s.skillName,
+        category: s.category,
+        isStrong: s.isStrong,
+        addedAt: s.addedAt,
+      })),
       createdAt: profile.createdAt,
       updatedAt: profile.updatedAt,
     };
@@ -55,17 +62,7 @@ export class UserProfileService {
 
     await this.userProfileRepo.save(profile);
 
-    return {
-      id: profile.id,
-      userId: profile.userId,
-      displayName: profile.displayName,
-      avatarUrl: profile.avatarUrl,
-      bio: profile.bio,
-      trustScore: profile.trustScore,
-      onboardingCompleted: profile.onboardingCompleted,
-      createdAt: profile.createdAt,
-      updatedAt: profile.updatedAt,
-    };
+    return this.getMyProfile(userId);
   }
 
   /**
@@ -74,6 +71,7 @@ export class UserProfileService {
   async getPublicProfile(targetUserId: string): Promise<GetPublicProfileResponseDto> {
     const profile = await this.userProfileRepo.findOne({
       where: { userId: targetUserId },
+      relations: { skills: true },
     });
 
     if (!profile) {
@@ -87,6 +85,13 @@ export class UserProfileService {
       bio: profile.bio,
       trustScore: profile.trustScore,
       trustTier: this.getTrustTier(profile.trustScore),
+      skills: (profile.skills || []).map((s) => ({
+        id: s.id,
+        skillName: s.skillName,
+        category: s.category,
+        isStrong: s.isStrong,
+        addedAt: s.addedAt,
+      })),
     };
   }
 
@@ -96,6 +101,7 @@ export class UserProfileService {
   async createProfile(userId: string): Promise<UserProfile> {
     const existing = await this.userProfileRepo.findOne({
       where: { userId },
+      relations: { skills: true },
     });
 
     if (existing) {
@@ -138,6 +144,7 @@ export class UserProfileService {
   private async findOrCreateProfile(userId: string): Promise<UserProfile> {
     let profile = await this.userProfileRepo.findOne({
       where: { userId },
+      relations: { skills: true },
     });
 
     if (!profile) {

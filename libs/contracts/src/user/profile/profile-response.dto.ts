@@ -1,4 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { SkillDto } from '../skill';
+
 
 export class GetUserProfileResponseDto {
   @ApiProperty({ example: 'uuid-string', description: 'ID profile' })
@@ -27,6 +29,9 @@ export class GetUserProfileResponseDto {
 
   @ApiProperty({ example: false, description: 'Đã hoàn thành onboarding' })
   onboardingCompleted: boolean;
+
+  @ApiPropertyOptional({ type: [SkillDto], description: 'Danh sách kỹ năng của người dùng' })
+  skills?: SkillDto[];
 
   @ApiProperty({ example: '2024-01-01T00:00:00Z', description: 'Thời điểm tạo' })
   createdAt: Date;
@@ -63,4 +68,7 @@ export class GetPublicProfileResponseDto {
     enum: ['EXCELLENT', 'GOOD', 'AVERAGE', 'WARNING', 'LOCKED'],
   })
   trustTier: string;
+
+  @ApiPropertyOptional({ type: [SkillDto], description: 'Danh sách kỹ năng công khai của người dùng' })
+  skills?: SkillDto[];
 }

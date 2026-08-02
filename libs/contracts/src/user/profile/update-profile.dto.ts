@@ -5,16 +5,16 @@ export class UpdateProfileDto {
   @ApiPropertyOptional({
     example: 'Nguyễn Văn A',
     description: 'Tên hiển thị',
-    maxLength: 100,
+    maxLength: 50,
   })
   @IsString()
   @IsOptional()
-  @MaxLength(100)
+  @MaxLength(50)
   displayName?: string;
 
   @ApiPropertyOptional({
-    example: 'Sinh viên CNTT, yêu thích lập trình web',
-    description: 'Tiểu sử',
+    example: 'Sinh viên năm 3 chuyên ngành Công nghệ thông tin',
+    description: 'Tiểu sử cá nhân',
     maxLength: 500,
   })
   @IsString()
