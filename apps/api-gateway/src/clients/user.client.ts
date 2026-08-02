@@ -71,6 +71,16 @@ export class UserClient {
     return this.request('POST', '/users/me/avatar', formData, headers);
   }
 
+  // ============ Daily Check-in Streak ============
+
+  async checkIn(headers: Record<string, string>) {
+    return this.request('POST', '/users/me/check-in', undefined, headers);
+  }
+
+  async getCheckInStatus(headers: Record<string, string>) {
+    return this.request('GET', '/users/me/check-in', undefined, headers);
+  }
+
   // ============ Follow System ============
 
   async followUser(targetUserId: string, headers: Record<string, string>) {

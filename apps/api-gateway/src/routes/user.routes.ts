@@ -15,6 +15,8 @@ import {
   FollowUserResponseDto,
   GetFollowersResponseDto,
   GetFollowingResponseDto,
+  CheckInResponseDto,
+  GetCheckInStatusResponseDto,
 } from '@app/contracts/user';
 
 // ============================================
@@ -119,6 +121,43 @@ export class UserAvatarRoutes {
   ) {
     const headers = { Authorization: req.headers.authorization };
     return this.userClient.uploadAvatar(file, headers);
+  }
+}
+
+// ============================================
+// User Daily Check-in Streak Routes
+// ============================================
+@ApiTags('User - Daily Check-in Streak')
+@Controller('users/me/check-in')
+@ApiBearerAuth()
+export class UserCheckinRoutes {
+  constructor(private readonly userClient: UserClient) {}
+
+  /** Thực hiện điểm danh hàng ngày */
+  @Post()
+  @ApiOperation({ summary: 'Điểm danh hàng ngày' })
+  @ApiResponse({
+    status: 201,
+    description: 'Điểm danh thành công',
+    type: CheckInResponseDto,
+  })
+  @ApiResponse({ status: 409, description: 'Bạn đã điểm danh ngày hôm nay rồi' })
+  async checkIn(@Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.checkIn(headers);
+  }
+
+  /** Lấy trạng thái điểm danh hiện tại */
+  @Get()
+  @ApiOperation({ summary: 'Lấy trạng thái điểm danh và chuỗi Streak hiện tại' })
+  @ApiResponse({
+    status: 200,
+    description: 'Trạng thái điểm danh',
+    type: GetCheckInStatusResponseDto,
+  })
+  async getCheckInStatus(@Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.getCheckInStatus(headers);
   }
 }
 

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
+import { ClientsModule, Transport } from '@nestjs/microservices';
 import { CommonModule } from '@app/common';
 import { CloudinaryModule } from '@app/common/cloudinary';
 import { UserProfile, SkillCategory, UserSkill, FollowRelation, LoginStreak, OnboardingReward } from './modules/user/entities';
@@ -15,6 +16,8 @@ import {
   UserAvatarController,
   UserFollowService,
   UserFollowController,
+  UserCheckinService,
+  UserCheckinController,
   UserEventHandler,
 } from './modules/user';
 
@@ -43,6 +46,19 @@ import {
       LoginStreak,
       OnboardingReward,
     ]),
+    ClientsModule.register([
+      {
+        name: 'WALLET_SERVICE',
+        transport: Transport.RMQ,
+        options: {
+          urls: [process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672'],
+          queue: 'wallet_queue',
+          queueOptions: {
+            durable: true,
+          },
+        },
+      },
+    ]),
   ],
   controllers: [
     UserProfileController,
@@ -50,6 +66,7 @@ import {
     UserSkillCategoryController,
     UserAvatarController,
     UserFollowController,
+    UserCheckinController,
     UserEventHandler,
   ],
   providers: [
@@ -58,6 +75,7 @@ import {
     UserSkillCategoryService,
     UserAvatarService,
     UserFollowService,
+    UserCheckinService,
   ],
   exports: [
     UserProfileService,
@@ -65,6 +83,7 @@ import {
     UserSkillCategoryService,
     UserAvatarService,
     UserFollowService,
+    UserCheckinService,
   ],
 })
 export class UserModule {}
