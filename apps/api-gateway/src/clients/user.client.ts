@@ -37,6 +37,8 @@ export class UserClient {
     }
   }
 
+  // ============ Profile ============
+
   async getMyProfile(headers: Record<string, string>) {
     return this.request('GET', '/users/me', undefined, headers);
   }
@@ -47,5 +49,33 @@ export class UserClient {
 
   async getPublicProfile(userId: string) {
     return this.request('GET', `/users/${userId}`);
+  }
+
+  // ============ Skills ============
+
+  async getMySkills(headers: Record<string, string>) {
+    return this.request('GET', '/users/me/skills', undefined, headers);
+  }
+
+  async getSkillsByUserId(userId: string) {
+    return this.request('GET', `/users/${userId}/skills`);
+  }
+
+  async createSkill(data: any, headers: Record<string, string>) {
+    return this.request('POST', '/users/me/skills', data, headers);
+  }
+
+  async updateSkill(skillId: string, data: any, headers: Record<string, string>) {
+    return this.request('PATCH', `/users/me/skills/${skillId}`, data, headers);
+  }
+
+  async deleteSkill(skillId: string, headers: Record<string, string>) {
+    return this.request('DELETE', `/users/me/skills/${skillId}`, undefined, headers);
+  }
+
+  // ============ Skill Categories ============
+
+  async getSkillCategories() {
+    return this.request('GET', '/skills/categories');
   }
 }

@@ -3,7 +3,15 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { CommonModule } from '@app/common';
 import { UserProfile, SkillCategory, UserSkill, FollowRelation, LoginStreak, OnboardingReward } from './modules/user/entities';
-import { UserProfileService, UserProfileController, UserEventHandler } from './modules/user';
+import {
+  UserProfileService,
+  UserProfileController,
+  UserSkillService,
+  UserSkillController,
+  UserSkillCategoryService,
+  UserSkillCategoryController,
+  UserEventHandler,
+} from './modules/user';
 
 @Module({
   imports: [
@@ -30,8 +38,21 @@ import { UserProfileService, UserProfileController, UserEventHandler } from './m
       OnboardingReward,
     ]),
   ],
-  controllers: [UserProfileController, UserEventHandler],
-  providers: [UserProfileService],
-  exports: [UserProfileService],
+  controllers: [
+    UserProfileController,
+    UserSkillController,
+    UserSkillCategoryController,
+    UserEventHandler,
+  ],
+  providers: [
+    UserProfileService,
+    UserSkillService,
+    UserSkillCategoryService,
+  ],
+  exports: [
+    UserProfileService,
+    UserSkillService,
+    UserSkillCategoryService,
+  ],
 })
 export class UserModule {}
