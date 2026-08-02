@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { UserProfile, SkillCategory, UserSkill, FollowRelation, LoginStreak, OnboardingReward } from './modules/user/entities';
+import { UserProfileService, UserProfileController } from './modules/user';
 
 @Module({
   imports: [
@@ -20,8 +21,17 @@ import { UserProfile, SkillCategory, UserSkill, FollowRelation, LoginStreak, Onb
       ssl: process.env.DB_SSL === 'true',
       extra: process.env.DB_SSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {},
     }),
+    TypeOrmModule.forFeature([
+      UserProfile,
+      SkillCategory,
+      UserSkill,
+      FollowRelation,
+      LoginStreak,
+      OnboardingReward,
+    ]),
   ],
-  controllers: [UserController],
-  providers: [UserService],
+  controllers: [UserController, UserProfileController],
+  providers: [UserService, UserProfileService],
+  exports: [UserProfileService],
 })
 export class UserModule {}
