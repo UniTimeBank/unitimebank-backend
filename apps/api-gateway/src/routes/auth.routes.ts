@@ -99,6 +99,53 @@ export class AuthRoutes {
     return this.authClient.setPassword(dto);
   }
 
+  /** Đổi mật khẩu - yêu cầu mật khẩu cũ */
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Đổi mật khẩu (cần MK cũ)' })
+  @ApiResponse({ status: 401, description: 'Mật khẩu hiện tại không đúng' })
+  async changePassword(@Body() dto: { userId: string; oldPassword: string; newPassword: string }) {
+    return this.authClient.changePassword(dto);
+  }
+
+  // ========== QUÊN MẬT KHẨU ==========
+
+  /** Gửi yêu cầu đặt lại mật khẩu - nhận OTP qua email */
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Quên mật khẩu - gửi OTP' })
+  @ApiResponse({
+    status: 200,
+    description: 'OTP đã được gửi nếu email tồn tại',
+    schema: {
+      example: {
+        message: 'Nếu email tồn tại trong hệ thống, chúng tôi đã gửi mã OTP đến email của bạn.',
+        email: 'student@gmail.com',
+      },
+    },
+  })
+  async forgotPassword(@Body() body: { email: string }) {
+    return this.authClient.forgotPassword(body.email);
+  }
+
+  /** Đặt lại mật khẩu với OTP */
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Đặt lại mật khẩu với OTP' })
+  @ApiResponse({
+    status: 200,
+    description: 'Đặt lại mật khẩu thành công',
+    schema: {
+      example: {
+        message: 'Đặt lại mật khẩu thành công. Bây giờ bạn có thể đăng nhập bằng mật khẩu mới.',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'OTP không hợp lệ hoặc đã hết hạn' })
+  async resetPassword(@Body() dto: { email: string; code: string; newPassword: string }) {
+    return this.authClient.resetPassword(dto);
+  }
+
   /** Làm mới access token bằng refresh token */
   @Post('refresh')
   @HttpCode(HttpStatus.OK)

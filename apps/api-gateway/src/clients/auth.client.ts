@@ -54,6 +54,19 @@ export class AuthClient {
     return this.request('POST', '/auth/set-password', data);
   }
 
+  async changePassword(data: { userId: string; oldPassword: string; newPassword: string }) {
+    return this.request('POST', '/auth/change-password', data);
+  }
+
+  // ========== QUÊN MẬT KHẨU ==========
+  async forgotPassword(email: string) {
+    return this.request('POST', '/auth/forgot-password', { email });
+  }
+
+  async resetPassword(data: { email: string; code: string; newPassword: string }) {
+    return this.request('POST', '/auth/reset-password', data);
+  }
+
   async refresh(data: any) {
     return this.request('POST', '/auth/refresh', data);
   }
