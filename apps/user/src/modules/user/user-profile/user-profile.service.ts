@@ -5,6 +5,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserProfile } from '../entities/user-profile.entity';
+import { FollowRelation } from '../entities/follow-relation.entity';
 import {
   UpdateProfileDto,
   GetUserProfileResponseDto,
@@ -16,6 +17,8 @@ export class UserProfileService {
   constructor(
     @InjectRepository(UserProfile)
     private readonly userProfileRepo: Repository<UserProfile>,
+    @InjectRepository(FollowRelation)
+    private readonly followRepo: Repository<FollowRelation>,
   ) {}
 
   /**
@@ -23,6 +26,8 @@ export class UserProfileService {
    */
   async getMyProfile(userId: string): Promise<GetUserProfileResponseDto> {
     const profile = await this.findOrCreateProfile(userId);
+    const followersCount = await this.followRepo.count({ where: { followeeId: userId } });
+    const followingCount = await this.followRepo.count({ where: { followerId: userId } });
 
     return {
       id: profile.id,
@@ -32,6 +37,8 @@ export class UserProfileService {
       bio: profile.bio,
       trustScore: profile.trustScore,
       onboardingCompleted: profile.onboardingCompleted,
+      followersCount,
+      followingCount,
       skills: (profile.skills || []).map((s) => ({
         id: s.id,
         skillName: s.skillName,
@@ -78,6 +85,9 @@ export class UserProfileService {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
 
+    const followersCount = await this.followRepo.count({ where: { followeeId: targetUserId } });
+    const followingCount = await this.followRepo.count({ where: { followerId: targetUserId } });
+
     return {
       id: profile.id,
       displayName: profile.displayName,
@@ -85,6 +95,8 @@ export class UserProfileService {
       bio: profile.bio,
       trustScore: profile.trustScore,
       trustTier: this.getTrustTier(profile.trustScore),
+      followersCount,
+      followingCount,
       skills: (profile.skills || []).map((s) => ({
         id: s.id,
         skillName: s.skillName,

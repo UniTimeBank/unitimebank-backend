@@ -71,6 +71,24 @@ export class UserClient {
     return this.request('POST', '/users/me/avatar', formData, headers);
   }
 
+  // ============ Follow System ============
+
+  async followUser(targetUserId: string, headers: Record<string, string>) {
+    return this.request('POST', `/users/${targetUserId}/follow`, undefined, headers);
+  }
+
+  async unfollowUser(targetUserId: string, headers: Record<string, string>) {
+    return this.request('DELETE', `/users/${targetUserId}/follow`, undefined, headers);
+  }
+
+  async getFollowers(targetUserId: string) {
+    return this.request('GET', `/users/${targetUserId}/followers`);
+  }
+
+  async getFollowing(targetUserId: string) {
+    return this.request('GET', `/users/${targetUserId}/following`);
+  }
+
   // ============ Skills ============
 
   async getMySkills(headers: Record<string, string>) {

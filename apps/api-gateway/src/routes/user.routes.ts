@@ -12,6 +12,9 @@ import {
   GetMySkillsResponseDto,
   GetSkillCategoriesResponseDto,
   UploadAvatarResponseDto,
+  FollowUserResponseDto,
+  GetFollowersResponseDto,
+  GetFollowingResponseDto,
 } from '@app/contracts/user';
 
 // ============================================
@@ -116,6 +119,68 @@ export class UserAvatarRoutes {
   ) {
     const headers = { Authorization: req.headers.authorization };
     return this.userClient.uploadAvatar(file, headers);
+  }
+}
+
+// ============================================
+// User Follow Routes
+// ============================================
+@ApiTags('User - Follow System')
+@Controller('users')
+export class UserFollowRoutes {
+  constructor(private readonly userClient: UserClient) {}
+
+  /** Theo dõi một người dùng */
+  @Post(':userId/follow')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Theo dõi một người dùng' })
+  @ApiResponse({
+    status: 201,
+    description: 'Theo dõi thành công',
+    type: FollowUserResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Không thể tự theo dõi chính mình' })
+  @ApiResponse({ status: 409, description: 'Đã theo dõi người dùng này rồi' })
+  async followUser(@Param('userId') targetUserId: string, @Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.followUser(targetUserId, headers);
+  }
+
+  /** Bỏ theo dõi một người dùng */
+  @Delete(':userId/follow')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Bỏ theo dõi một người dùng' })
+  @ApiResponse({ status: 200, description: 'Bỏ theo dõi thành công' })
+  @ApiResponse({ status: 404, description: 'Chưa theo dõi người dùng này' })
+  async unfollowUser(@Param('userId') targetUserId: string, @Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.unfollowUser(targetUserId, headers);
+  }
+
+  /** Lấy danh sách người theo dõi của một user */
+  @Get(':userId/followers')
+  @ApiOperation({ summary: 'Lấy danh sách những người theo dõi người dùng' })
+  @ApiResponse({
+    status: 200,
+    description: 'Danh sách người theo dõi',
+    type: GetFollowersResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy người dùng' })
+  async getFollowers(@Param('userId') targetUserId: string) {
+    return this.userClient.getFollowers(targetUserId);
+  }
+
+  /** Lấy danh sách những người mà user đang theo dõi */
+  @Get(':userId/following')
+  @ApiOperation({ summary: 'Lấy danh sách những người mà người dùng đang theo dõi' })
+  @ApiResponse({
+    status: 200,
+    description: 'Danh sách người đang theo dõi',
+    type: GetFollowingResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy người dùng' })
+  async getFollowing(@Param('userId') targetUserId: string) {
+    return this.userClient.getFollowing(targetUserId);
   }
 }
 
