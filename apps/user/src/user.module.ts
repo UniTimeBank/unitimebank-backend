@@ -13,6 +13,8 @@ import {
   UserSkillCategoryController,
   UserAvatarService,
   UserAvatarController,
+  UserFollowService,
+  UserFollowController,
   UserEventHandler,
 } from './modules/user';
 
@@ -47,6 +49,7 @@ import {
     UserSkillController,
     UserSkillCategoryController,
     UserAvatarController,
+    UserFollowController,
     UserEventHandler,
   ],
   providers: [
@@ -54,12 +57,14 @@ import {
     UserSkillService,
     UserSkillCategoryService,
     UserAvatarService,
+    UserFollowService,
   ],
   exports: [
     UserProfileService,
     UserSkillService,
     UserSkillCategoryService,
     UserAvatarService,
+    UserFollowService,
   ],
 })
 export class UserModule {}

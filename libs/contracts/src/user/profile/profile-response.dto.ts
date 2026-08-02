@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { SkillDto } from '../skill';
 
-
 export class GetUserProfileResponseDto {
   @ApiProperty({ example: 'uuid-string', description: 'ID profile' })
   id: string;
@@ -29,6 +28,12 @@ export class GetUserProfileResponseDto {
 
   @ApiProperty({ example: false, description: 'Đã hoàn thành onboarding' })
   onboardingCompleted: boolean;
+
+  @ApiPropertyOptional({ example: 12, description: 'Số người theo dõi' })
+  followersCount?: number;
+
+  @ApiPropertyOptional({ example: 5, description: 'Số người đang theo dõi' })
+  followingCount?: number;
 
   @ApiPropertyOptional({ type: [SkillDto], description: 'Danh sách kỹ năng của người dùng' })
   skills?: SkillDto[];
@@ -68,6 +73,12 @@ export class GetPublicProfileResponseDto {
     enum: ['EXCELLENT', 'GOOD', 'AVERAGE', 'WARNING', 'LOCKED'],
   })
   trustTier: string;
+
+  @ApiPropertyOptional({ example: 12, description: 'Số người theo dõi' })
+  followersCount?: number;
+
+  @ApiPropertyOptional({ example: 5, description: 'Số người đang theo dõi' })
+  followingCount?: number;
 
   @ApiPropertyOptional({ type: [SkillDto], description: 'Danh sách kỹ năng công khai của người dùng' })
   skills?: SkillDto[];
