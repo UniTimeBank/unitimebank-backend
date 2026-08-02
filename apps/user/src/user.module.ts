@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import { UserController } from './user.controller';
-import { UserService } from './user.service';
+import { CommonModule } from '@app/common';
 import { UserProfile, SkillCategory, UserSkill, FollowRelation, LoginStreak, OnboardingReward } from './modules/user/entities';
-import { UserProfileService, UserProfileController } from './modules/user';
+import { UserProfileService, UserProfileController, UserEventHandler } from './modules/user';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    CommonModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
@@ -30,8 +30,8 @@ import { UserProfileService, UserProfileController } from './modules/user';
       OnboardingReward,
     ]),
   ],
-  controllers: [UserController, UserProfileController],
-  providers: [UserService, UserProfileService],
+  controllers: [UserProfileController, UserEventHandler],
+  providers: [UserProfileService],
   exports: [UserProfileService],
 })
 export class UserModule {}
