@@ -1,3 +1,4 @@
 export * from './contracts.module';
 export * from './contracts.service';
 export * from './auth';
+export * from './user';

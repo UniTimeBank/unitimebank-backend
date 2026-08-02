@@ -1,26 +1,51 @@
-import { Injectable } from '@nestjs/common';
-import { ClientProxy, ClientProxyFactory, Transport } from '@nestjs/microservices';
+import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 
 @Injectable()
 export class UserClient {
-  private client: ClientProxy;
+  private readonly USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:3002';
 
-  constructor() {
-    this.client = ClientProxyFactory.create({
-      transport: Transport.RMQ,
-      options: {
-        urls: [process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672'],
-        queue: 'user_queue',
-        queueOptions: { durable: false },
+  private async request(method: string, path: string, data?: any, headers?: Record<string, string>) {
+    const url = `${this.USER_SERVICE_URL}${path}`;
+    const options: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers,
       },
-    });
+    };
+    if (data) {
+      options.body = JSON.stringify(data);
+    }
+    try {
+      const response = await fetch(url, options);
+      const result = await response.json();
+      if (!response.ok) {
+        throw new HttpException(
+          result.message || result.error || 'Lỗi xử lý hệ thống',
+          response.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+      return result;
+    } catch (err) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      throw new HttpException(
+        'Không thể kết nối đến Dịch vụ Người dùng',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
   }
 
-  send<T>(pattern: string, data: any): Promise<T> {
-    return this.client.send<T>(pattern, data).toPromise() as Promise<T>;
+  async getMyProfile(headers: Record<string, string>) {
+    return this.request('GET', '/users/me', undefined, headers);
   }
 
-  emit<T>(pattern: string, data: any) {
-    return this.client.emit(pattern, data);
+  async updateProfile(data: any, headers: Record<string, string>) {
+    return this.request('PATCH', '/users/me', data, headers);
+  }
+
+  async getPublicProfile(userId: string) {
+    return this.request('GET', `/users/${userId}`);
   }
 }

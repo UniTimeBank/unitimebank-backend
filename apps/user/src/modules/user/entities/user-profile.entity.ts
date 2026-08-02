@@ -1,7 +1,12 @@
 import {
-  Entity, Column, PrimaryGeneratedColumn, UpdateDateColumn, OneToMany,
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+  JoinColumn,
 } from 'typeorm';
-import { SkillCategoryName } from '../enums';
 import { UserSkill } from './user-skill.entity';
 import { FollowRelation } from './follow-relation.entity';
 import { LoginStreak } from './login-streak.entity';
@@ -30,8 +35,11 @@ export class UserProfile {
   @Column({ name: 'onboarding_completed', default: false })
   onboardingCompleted: boolean;
 
-  @UpdateDateColumn({ name: 'last_updated_at' })
-  lastUpdatedAt: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   @OneToMany(() => UserSkill, (skill) => skill.userProfile)
   skills: UserSkill[];
