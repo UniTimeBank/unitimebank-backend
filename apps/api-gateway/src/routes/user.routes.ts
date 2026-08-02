@@ -1,5 +1,6 @@
-import { Controller, Get, Patch, Post, Delete, Body, Param, Req } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Patch, Post, Delete, Body, Param, Req, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { UserClient } from '../clients/user.client';
 import {
   UpdateProfileDto,
@@ -10,6 +11,7 @@ import {
   SkillDto,
   GetMySkillsResponseDto,
   GetSkillCategoriesResponseDto,
+  UploadAvatarResponseDto,
 } from '@app/contracts/user';
 
 // ============================================
@@ -75,6 +77,45 @@ export class UserRoutes {
   @ApiResponse({ status: 404, description: 'Không tìm thấy người dùng' })
   async getSkillsByUserId(@Param('userId') userId: string) {
     return this.userClient.getSkillsByUserId(userId);
+  }
+}
+
+// ============================================
+// User Avatar Routes
+// ============================================
+@ApiTags('User - Avatar')
+@Controller('users/me/avatar')
+@ApiBearerAuth()
+export class UserAvatarRoutes {
+  constructor(private readonly userClient: UserClient) {}
+
+  @Post()
+  @UseInterceptors(FileInterceptor('avatar'))
+  @ApiOperation({ summary: 'Upload ảnh đại diện cá nhân lên Cloudinary' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        avatar: {
+          type: 'string',
+          format: 'binary',
+          description: 'File ảnh đại diện (JPG, PNG, WEBP, <= 5MB)',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Upload thành công',
+    type: UploadAvatarResponseDto,
+  })
+  async uploadAvatar(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
+  ) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.uploadAvatar(file, headers);
   }
 }
 

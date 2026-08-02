@@ -9,7 +9,7 @@ import { WalletClient } from './clients/wallet.client';
 import { ModerationClient } from './clients/moderation.client';
 import { NotificationClient } from './clients/notification.client';
 import { AuthRoutes } from './routes/auth.routes';
-import { UserRoutes, UserSkillRoutes, SkillCategoryRoutes } from './routes/user.routes';
+import { UserRoutes, UserAvatarRoutes, UserSkillRoutes, SkillCategoryRoutes } from './routes/user.routes';
 import { PostRoutes } from './routes/post.routes';
 import { BookingRoutes } from './routes/booking.routes';
 import { SessionRoutes } from './routes/session.routes';
@@ -29,6 +29,7 @@ import { NotificationRoutes } from './routes/notification.routes';
   controllers: [
     AuthRoutes,
     UserRoutes,
+    UserAvatarRoutes,
     UserSkillRoutes,
     SkillCategoryRoutes,
     PostRoutes,
