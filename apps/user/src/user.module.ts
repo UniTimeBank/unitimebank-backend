@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { CommonModule } from '@app/common';
+import { CloudinaryModule } from '@app/common/cloudinary';
 import { UserProfile, SkillCategory, UserSkill, FollowRelation, LoginStreak, OnboardingReward } from './modules/user/entities';
 import {
   UserProfileService,
@@ -10,6 +11,8 @@ import {
   UserSkillController,
   UserSkillCategoryService,
   UserSkillCategoryController,
+  UserAvatarService,
+  UserAvatarController,
   UserEventHandler,
 } from './modules/user';
 
@@ -17,6 +20,7 @@ import {
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     CommonModule,
+    CloudinaryModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
@@ -42,17 +46,20 @@ import {
     UserProfileController,
     UserSkillController,
     UserSkillCategoryController,
+    UserAvatarController,
     UserEventHandler,
   ],
   providers: [
     UserProfileService,
     UserSkillService,
     UserSkillCategoryService,
+    UserAvatarService,
   ],
   exports: [
     UserProfileService,
     UserSkillService,
     UserSkillCategoryService,
+    UserAvatarService,
   ],
 })
 export class UserModule {}

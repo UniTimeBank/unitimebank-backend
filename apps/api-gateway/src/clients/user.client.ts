@@ -6,16 +6,22 @@ export class UserClient {
 
   private async request(method: string, path: string, data?: any, headers?: Record<string, string>) {
     const url = `${this.USER_SERVICE_URL}${path}`;
+    const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
+
+    const requestHeaders: Record<string, string> = { ...headers };
+    if (!isFormData) {
+      requestHeaders['Content-Type'] = 'application/json';
+    }
+
     const options: RequestInit = {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...headers,
-      },
+      headers: requestHeaders,
     };
+
     if (data) {
-      options.body = JSON.stringify(data);
+      options.body = isFormData ? data : JSON.stringify(data);
     }
+
     try {
       const response = await fetch(url, options);
       const result = await response.json();
@@ -49,6 +55,20 @@ export class UserClient {
 
   async getPublicProfile(userId: string) {
     return this.request('GET', `/users/${userId}`);
+  }
+
+  // ============ Avatar ============
+
+  async uploadAvatar(file: Express.Multer.File, headers: Record<string, string>) {
+    if (!file) {
+      throw new HttpException('Chưa chọn file ảnh', HttpStatus.BAD_REQUEST);
+    }
+
+    const formData = new FormData();
+    const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimetype });
+    formData.append('avatar', blob, file.originalname || 'avatar.jpg');
+
+    return this.request('POST', '/users/me/avatar', formData, headers);
   }
 
   // ============ Skills ============
