@@ -35,11 +35,36 @@ export class AuthController {
     return this.authService.googleLogin(dto);
   }
 
+  // ========== QUÊN MẬT KHẨU ==========
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(@Body() body: { email: string }) {
+    return this.authService.forgotPassword(body.email);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() dto: { email: string; code: string; newPassword: string }) {
+    return this.authService.resetPassword(dto.email, dto.code, dto.newPassword);
+  }
+
+  // ========== ĐẶT LẠI MẬT KHẨU (khi đã đăng nhập) ==========
+
   @Post('set-password')
   @HttpCode(HttpStatus.OK)
   async setPassword(@Body() body: { userId: string; newPassword: string }) {
     return this.authService.setPassword(body.userId, { newPassword: body.newPassword });
   }
+
+  // Đổi MK khi đã đăng nhập - cần verify MK cũ
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  async changePassword(@Body() body: { userId: string; oldPassword: string; newPassword: string }) {
+    return this.authService.changePassword(body.userId, body.oldPassword, body.newPassword);
+  }
+
+  // ========== TOKEN ==========
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)

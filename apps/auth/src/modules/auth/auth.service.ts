@@ -324,6 +324,109 @@ export class AuthService {
     };
   }
 
+  // Đổi mật khẩu khi đã đăng nhập - yêu cầu verify mật khẩu cũ
+  async changePassword(userId: string, oldPassword: string, newPassword: string) {
+    const userAccount = await this.userAccountRepo.findOne({
+      where: { id: userId },
+    });
+    if (!userAccount) {
+      throw new NotFoundException('Không tìm thấy tài khoản người dùng');
+    }
+
+    if (userAccount.status === AccountStatus.LOCKED) {
+      throw new UnauthorizedException('Tài khoản đã bị khóa');
+    }
+
+    // Verify mật khẩu cũ
+    const isOldPasswordValid = await bcrypt.compare(oldPassword, userAccount.passwordHash);
+    if (!isOldPasswordValid) {
+      throw new UnauthorizedException('Mật khẩu hiện tại không đúng');
+    }
+
+    if (oldPassword === newPassword) {
+      throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại');
+    }
+
+    if (newPassword.length < 8) {
+      throw new BadRequestException('Mật khẩu mới phải có ít nhất 8 ký tự');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    userAccount.passwordHash = passwordHash;
+    await this.userAccountRepo.save(userAccount);
+
+    return {
+      message: 'Đổi mật khẩu thành công.',
+    };
+  }
+
+  // ==================== QUÊN MẬT KHẨU ====================
+
+  async forgotPassword(email: string) {
+    const userAccount = await this.userAccountRepo.findOne({
+      where: { email },
+    });
+
+    if (!userAccount) {
+      // Không tiết lộ email có tồn tại hay không để tránh user enumeration
+      return {
+        message: 'Nếu email tồn tại trong hệ thống, chúng tôi đã gửi mã OTP đến email của bạn.',
+      };
+    }
+
+    if (userAccount.status === AccountStatus.LOCKED) {
+      throw new UnauthorizedException('Tài khoản đã bị khóa');
+    }
+
+    // Tạo và lưu OTP
+    const otp = this.generateOtp();
+    await this.saveOtp(email, otp, OtpPurpose.FORGOT_PASSWORD);
+
+    // Gửi OTP qua email
+    await this.emailService.sendOtp(email, otp, 'FORGOT_PASSWORD');
+
+    return {
+      message: 'Nếu email tồn tại trong hệ thống, chúng tôi đã gửi mã OTP đến email của bạn.',
+      email,
+    };
+  }
+
+  async resetPassword(email: string, code: string, newPassword: string) {
+    // Xác thực OTP trước
+    const isValid = await this.verifyOtpCode(email, code, OtpPurpose.FORGOT_PASSWORD);
+    if (!isValid) {
+      throw new BadRequestException('Mã OTP không hợp lệ hoặc đã hết hạn');
+    }
+
+    // Tìm tài khoản
+    const userAccount = await this.userAccountRepo.findOne({
+      where: { email },
+    });
+
+    if (!userAccount) {
+      throw new NotFoundException('Không tìm thấy tài khoản');
+    }
+
+    if (userAccount.status === AccountStatus.LOCKED) {
+      throw new UnauthorizedException('Tài khoản đã bị khóa');
+    }
+
+    // Cập nhật mật khẩu mới
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    userAccount.passwordHash = passwordHash;
+    await this.userAccountRepo.save(userAccount);
+
+    // Đánh dấu OTP đã sử dụng
+    await this.otpRepo.update(
+      { email, purpose: OtpPurpose.FORGOT_PASSWORD, consumed: false },
+      { consumed: true },
+    );
+
+    return {
+      message: 'Đặt lại mật khẩu thành công. Bây giờ bạn có thể đăng nhập bằng mật khẩu mới.',
+    };
+  }
+
   // ==================== LÀM MỚI TOKEN ====================
 
   async refreshToken(refreshToken: string) {

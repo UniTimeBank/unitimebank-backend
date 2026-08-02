@@ -125,7 +125,7 @@ export class UserProfileService {
       displayName: '',
       avatarUrl: '',
       bio: '',
-      trustScore: 100,
+      trustScore: 30,
       onboardingCompleted: false,
     });
 
