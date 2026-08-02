@@ -4,13 +4,15 @@ import {
   ConflictException,
   BadRequestException,
   NotFoundException,
+  Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { JwtService } from '@nestjs/jwt';
+import { ClientProxy, Transport } from '@nestjs/microservices';
+import { OAuth2Client } from 'google-auth-library';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { JwtService } from '@nestjs/jwt';
-import { OAuth2Client } from 'google-auth-library';
 import { EmailService } from '@app/common/email';
 import { UserAccount } from './entities/user-account.entity';
 import { OtpRecord } from './entities/otp-record.entity';
@@ -19,6 +21,7 @@ import { AuthSession } from './entities/auth-session.entity';
 import { OAuthCredential } from './entities/oauth-credential.entity';
 import { Role, AccountStatus, OtpPurpose } from './enums';
 import { RegisterDto, LoginDto, VerifyOtpDto, GoogleAuthDto, SetPasswordDto } from '@app/contracts/auth';
+import { USER_EVENTS } from '@app/contracts/events';
 
 @Injectable()
 export class AuthService {
@@ -39,6 +42,7 @@ export class AuthService {
     private readonly oauthCredentialRepo: Repository<OAuthCredential>,
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
+    @Inject('USER_SERVICE') private readonly userClient: ClientProxy,
   ) {}
 
   // ==================== ĐĂNG KÝ ====================
@@ -99,8 +103,15 @@ export class AuthService {
     // Ghi lại AuthSession vào bảng auth_session
     await this.recordSession(userAccount.id);
 
-    // Gửi email chào mừng khi đăng ký thành công (bất đồng bộ không block response)
+    // Emit event tạo user-profile khi đăng ký thành công (bất đồng bộ)
     if (dto.purpose === OtpPurpose.REGISTER) {
+      this.userClient.emit(USER_EVENTS.USER_REGISTERED, {
+        eventType: 'USER_REGISTERED',
+        userId: userAccount.id,
+        email: userAccount.email,
+        timestamp: new Date().toISOString(),
+      });
+      // Gửi email chào mừng (bất đồng bộ)
       this.emailService.sendWelcome(dto.email).catch(() => {});
     }
 
@@ -259,6 +270,16 @@ export class AuthService {
         providerUserId: googleSubId || email,
       });
       await this.oauthCredentialRepo.save(oauthCred);
+    }
+
+    // Emit event tạo user-profile nếu đây là tài khoản mới tạo qua Google
+    if (isNewUser) {
+      this.userClient.emit(USER_EVENTS.USER_REGISTERED, {
+        eventType: 'USER_REGISTERED',
+        userId: userAccount.id,
+        email: userAccount.email,
+        timestamp: new Date().toISOString(),
+      });
     }
 
     // Ghi lại AuthSession vào bảng auth_session

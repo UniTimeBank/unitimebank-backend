@@ -54,9 +54,7 @@ export class EmailService {
         html,
         attachments,
       });
-      console.log(`[EMAIL] Đã gửi OTP đến ${email}`);
     } catch (error) {
-      console.error(`[EMAIL] Lỗi gửi OTP đến ${email}:`, error.message);
     }
   }
 

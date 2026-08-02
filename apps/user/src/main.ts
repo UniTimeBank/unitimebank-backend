@@ -10,12 +10,13 @@ async function bootstrap() {
     options: {
       urls: [process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672'],
       queue: 'user_queue',
-      queueOptions: { durable: false },
+      queueOptions: { durable: true },
+      noAck: true,
     },
   });
 
   await app.startAllMicroservices();
   await app.listen(parseInt(process.env.PORT || '3002', 10));
-  console.log('User service running on port 3002');
+  console.log('User service running on port 3002 listening on user_queue');
 }
 bootstrap();
