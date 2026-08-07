@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Delete, Body, Param, Req, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Body, Param, Query, Req, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { UserClient } from '../clients/user.client';
@@ -17,6 +17,14 @@ import {
   GetFollowingResponseDto,
   CheckInResponseDto,
   GetCheckInStatusResponseDto,
+  CreateRecurringScheduleDto,
+  UpdateRecurringScheduleDto,
+  CreateScheduleExceptionDto,
+  GetRecurringSchedulesResponseDto,
+  RecurringScheduleResponseDto,
+  GetScheduleExceptionsResponseDto,
+  ScheduleExceptionResponseDto,
+  GetAvailabilityResponseDto,
 } from '@app/contracts/user';
 
 // ============================================
@@ -116,7 +124,7 @@ export class UserAvatarRoutes {
     type: UploadAvatarResponseDto,
   })
   async uploadAvatar(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: any,
     @Req() req: any,
   ) {
     const headers = { Authorization: req.headers.authorization };
@@ -309,5 +317,131 @@ export class SkillCategoryRoutes {
   })
   async getCategories() {
     return this.userClient.getSkillCategories();
+  }
+}
+
+// ============================================
+// User Schedule & Availability Routes
+// ============================================
+@ApiTags('User - Quản lý lịch rảnh (Schedule)')
+@Controller('users')
+export class UserScheduleRoutes {
+  constructor(private readonly userClient: UserClient) {}
+
+  /** Lấy danh sách lịch rảnh lặp lại hàng tuần của tôi */
+  @Get('me/schedule/recurring')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy danh sách lịch rảnh lặp lại hàng tuần của tôi' })
+  @ApiResponse({
+    status: 200,
+    description: 'Danh sách lịch rảnh lặp lại',
+    type: GetRecurringSchedulesResponseDto,
+  })
+  async getMyRecurringSchedules(@Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.getMyRecurringSchedules(headers);
+  }
+
+  /** Tạo lịch rảnh lặp lại hàng tuần mới */
+  @Post('me/schedule/recurring')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Tạo lịch rảnh lặp lại hàng tuần mới cho Người dạy' })
+  @ApiBody({ type: CreateRecurringScheduleDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Tạo lịch lặp lại thành công',
+    type: RecurringScheduleResponseDto,
+  })
+  async createRecurringSchedule(@Body() dto: CreateRecurringScheduleDto, @Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.createRecurringSchedule(dto, headers);
+  }
+
+  /** Cập nhật lịch rảnh lặp lại */
+  @Patch('me/schedule/recurring/:scheduleId')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cập nhật lịch rảnh lặp lại' })
+  @ApiBody({ type: UpdateRecurringScheduleDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Cập nhật lịch thành công',
+    type: RecurringScheduleResponseDto,
+  })
+  async updateRecurringSchedule(
+    @Param('scheduleId') scheduleId: string,
+    @Body() dto: UpdateRecurringScheduleDto,
+    @Req() req: any,
+  ) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.updateRecurringSchedule(scheduleId, dto, headers);
+  }
+
+  /** Xóa lịch rảnh lặp lại */
+  @Delete('me/schedule/recurring/:scheduleId')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Xóa lịch rảnh lặp lại' })
+  @ApiResponse({ status: 204, description: 'Xóa thành công' })
+  async deleteRecurringSchedule(@Param('scheduleId') scheduleId: string, @Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.deleteRecurringSchedule(scheduleId, headers);
+  }
+
+  /** Lấy danh sách lịch đặc biệt (EXTRA / BLOCKED) */
+  @Get('me/schedule/exceptions')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy danh sách lịch đặc biệt (EXTRA / BLOCKED) của tôi' })
+  @ApiResponse({
+    status: 200,
+    description: 'Danh sách lịch đặc biệt',
+    type: GetScheduleExceptionsResponseDto,
+  })
+  async getMyScheduleExceptions(
+    @Req() req: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.getMyScheduleExceptions(from, to, headers);
+  }
+
+  /** Tạo lịch đặc biệt (thêm giờ EXTRA hoặc chặn giờ BLOCKED) */
+  @Post('me/schedule/exceptions')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Tạo lịch đặc biệt (thêm giờ EXTRA hoặc chặn giờ BLOCKED)' })
+  @ApiBody({ type: CreateScheduleExceptionDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Tạo lịch đặc biệt thành công',
+    type: ScheduleExceptionResponseDto,
+  })
+  async createScheduleException(@Body() dto: CreateScheduleExceptionDto, @Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.createScheduleException(dto, headers);
+  }
+
+  /** Xóa lịch đặc biệt */
+  @Delete('me/schedule/exceptions/:exceptionId')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Xóa lịch đặc biệt' })
+  @ApiResponse({ status: 204, description: 'Xóa thành công' })
+  async deleteScheduleException(@Param('exceptionId') exceptionId: string, @Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.deleteScheduleException(exceptionId, headers);
+  }
+
+  /** Lấy lịch rảnh khả dụng của Người dạy trong khoảng ngày */
+  @Get(':userId/schedule/availability')
+  @ApiOperation({ summary: 'Lấy lịch rảnh khả dụng của Người dạy trong khoảng ngày (from -> to)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lịch rảnh khả dụng theo từng ngày',
+    type: GetAvailabilityResponseDto,
+  })
+  async getAvailability(
+    @Param('userId') targetUserId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.userClient.getAvailability(targetUserId, from, to);
   }
 }

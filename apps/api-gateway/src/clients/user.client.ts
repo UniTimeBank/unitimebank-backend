@@ -59,7 +59,7 @@ export class UserClient {
 
   // ============ Avatar ============
 
-  async uploadAvatar(file: Express.Multer.File, headers: Record<string, string>) {
+  async uploadAvatar(file: any, headers: Record<string, string>) {
     if (!file) {
       throw new HttpException('Chưa chọn file ảnh', HttpStatus.BAD_REQUEST);
     }
@@ -125,5 +125,45 @@ export class UserClient {
 
   async getSkillCategories() {
     return this.request('GET', '/skills/categories');
+  }
+
+  // ============ Mentor Schedule ============
+
+  async getMyRecurringSchedules(headers: Record<string, string>) {
+    return this.request('GET', '/users/me/schedule/recurring', undefined, headers);
+  }
+
+  async createRecurringSchedule(data: any, headers: Record<string, string>) {
+    return this.request('POST', '/users/me/schedule/recurring', data, headers);
+  }
+
+  async updateRecurringSchedule(scheduleId: string, data: any, headers: Record<string, string>) {
+    return this.request('PATCH', `/users/me/schedule/recurring/${scheduleId}`, data, headers);
+  }
+
+  async deleteRecurringSchedule(scheduleId: string, headers: Record<string, string>) {
+    return this.request('DELETE', `/users/me/schedule/recurring/${scheduleId}`, undefined, headers);
+  }
+
+  async getMyScheduleExceptions(from?: string, to?: string, headers?: Record<string, string>) {
+    let query = '';
+    const params: string[] = [];
+    if (from) params.push(`from=${from}`);
+    if (to) params.push(`to=${to}`);
+    if (params.length > 0) query = `?${params.join('&')}`;
+
+    return this.request('GET', `/users/me/schedule/exceptions${query}`, undefined, headers);
+  }
+
+  async createScheduleException(data: any, headers: Record<string, string>) {
+    return this.request('POST', '/users/me/schedule/exceptions', data, headers);
+  }
+
+  async deleteScheduleException(exceptionId: string, headers: Record<string, string>) {
+    return this.request('DELETE', `/users/me/schedule/exceptions/${exceptionId}`, undefined, headers);
+  }
+
+  async getAvailability(userId: string, from: string, to: string) {
+    return this.request('GET', `/users/${userId}/schedule/availability?from=${from}&to=${to}`);
   }
 }

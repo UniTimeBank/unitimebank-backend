@@ -30,7 +30,7 @@ export class UserAvatarService {
    */
   async uploadAvatar(
     userId: string,
-    file: Express.Multer.File,
+    file: any,
   ): Promise<UploadAvatarResponseDto> {
     if (!file) {
       throw new BadRequestException('Vui lòng chọn file ảnh để tải lên');

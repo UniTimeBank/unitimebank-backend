@@ -4,7 +4,16 @@ import { ConfigModule } from '@nestjs/config';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { CommonModule } from '@app/common';
 import { CloudinaryModule } from '@app/common/cloudinary';
-import { UserProfile, SkillCategory, UserSkill, FollowRelation, LoginStreak, OnboardingReward } from './modules/user/entities';
+import {
+  UserProfile,
+  SkillCategory,
+  UserSkill,
+  FollowRelation,
+  LoginStreak,
+  OnboardingReward,
+  MentorRecurringSchedule,
+  MentorExceptionDate,
+} from './modules/user/entities';
 import {
   UserProfileService,
   UserProfileController,
@@ -18,6 +27,8 @@ import {
   UserFollowController,
   UserCheckinService,
   UserCheckinController,
+  UserScheduleService,
+  UserScheduleController,
   UserEventHandler,
 } from './modules/user';
 
@@ -33,7 +44,16 @@ import {
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME || 'user_db',
-      entities: [UserProfile, SkillCategory, UserSkill, FollowRelation, LoginStreak, OnboardingReward],
+      entities: [
+        UserProfile,
+        SkillCategory,
+        UserSkill,
+        FollowRelation,
+        LoginStreak,
+        OnboardingReward,
+        MentorRecurringSchedule,
+        MentorExceptionDate,
+      ],
       synchronize: true,
       ssl: process.env.DB_SSL === 'true',
       extra: process.env.DB_SSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {},
@@ -45,6 +65,8 @@ import {
       FollowRelation,
       LoginStreak,
       OnboardingReward,
+      MentorRecurringSchedule,
+      MentorExceptionDate,
     ]),
     ClientsModule.register([
       {
@@ -67,6 +89,7 @@ import {
     UserAvatarController,
     UserFollowController,
     UserCheckinController,
+    UserScheduleController,
     UserEventHandler,
   ],
   providers: [
@@ -76,6 +99,7 @@ import {
     UserAvatarService,
     UserFollowService,
     UserCheckinService,
+    UserScheduleService,
   ],
   exports: [
     UserProfileService,
@@ -84,6 +108,7 @@ import {
     UserAvatarService,
     UserFollowService,
     UserCheckinService,
+    UserScheduleService,
   ],
 })
 export class UserModule {}

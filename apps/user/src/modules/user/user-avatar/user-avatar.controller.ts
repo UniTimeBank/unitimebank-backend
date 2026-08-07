@@ -51,7 +51,7 @@ export class UserAvatarController {
   @ApiResponse({ status: 400, description: 'File không hợp lệ hoặc quá lớn' })
   async uploadAvatar(
     @Req() req: any,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: any,
   ): Promise<UploadAvatarResponseDto> {
     return this.userAvatarService.uploadAvatar(req.user.id, file);
   }
