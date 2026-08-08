@@ -60,8 +60,14 @@ export class ModerationEmbed {
 
 @Schema({ collection: 'mentor_posts', timestamps: true })
 export class MentorPost {
-  @Prop({ required: true })
+  @Prop({ required: true, index: true })
   mentorId: string;
+
+  @Prop()
+  mentorName: string;
+
+  @Prop()
+  mentorAvatar: string;
 
   @Prop({ required: true })
   title: string;
@@ -81,7 +87,7 @@ export class MentorPost {
   @Prop({ default: 100 })
   trustScoreSnapshot: number;
 
-  @Prop({ type: String, enum: PostStatus, default: PostStatus.DRAFT })
+  @Prop({ type: String, enum: PostStatus, default: PostStatus.PUBLISHED, index: true })
   status: PostStatus;
 
   @Prop({ type: SearchIndex })
@@ -92,6 +98,17 @@ export class MentorPost {
 
   @Prop()
   removedAt: Date;
+
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export const MentorPostSchema = SchemaFactory.createForClass(MentorPost);
+
+// Indexes
+MentorPostSchema.index(
+  { title: 'text', description: 'text', 'tags.skillName': 'text' },
+  { weights: { title: 10, 'tags.skillName': 5, description: 1 }, name: 'MentorPostTextIndex' }
+);
+MentorPostSchema.index({ status: 1, 'tags.category': 1, trustScoreSnapshot: -1, createdAt: -1 });
+MentorPostSchema.index({ mentorId: 1, createdAt: -1 });

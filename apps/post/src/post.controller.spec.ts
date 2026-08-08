@@ -4,19 +4,28 @@ import { PostService } from './post.service';
 
 describe('PostController', () => {
   let postController: PostController;
+  let postService: PostService;
 
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [PostController],
-      providers: [PostService],
+      providers: [
+        {
+          provide: PostService,
+          useValue: {
+            createMentorPost: jest.fn(),
+            getMentorPosts: jest.fn(),
+            getMentorPostById: jest.fn(),
+          },
+        },
+      ],
     }).compile();
 
     postController = app.get<PostController>(PostController);
+    postService = app.get<PostService>(PostService);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(postController.getHello()).toBe('Hello World!');
-    });
+  it('should be defined', () => {
+    expect(postController).toBeDefined();
   });
 });

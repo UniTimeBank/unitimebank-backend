@@ -10,7 +10,7 @@ import { ModerationClient } from './clients/moderation.client';
 import { NotificationClient } from './clients/notification.client';
 import { AuthRoutes } from './routes/auth.routes';
 import { UserRoutes, UserAvatarRoutes, UserFollowRoutes, UserCheckinRoutes, UserSkillRoutes, SkillCategoryRoutes, UserScheduleRoutes } from './routes/user.routes';
-import { PostRoutes } from './routes/post.routes';
+import { PostMentorRoutes, PostLearnerRoutes, PostSearchRoutes } from './routes/post.routes';
 import { BookingRoutes } from './routes/booking.routes';
 import { SessionRoutes } from './routes/session.routes';
 import { WalletRoutes } from './routes/wallet.routes';
@@ -35,7 +35,9 @@ import { NotificationRoutes } from './routes/notification.routes';
     UserSkillRoutes,
     SkillCategoryRoutes,
     UserScheduleRoutes,
-    PostRoutes,
+    PostMentorRoutes,
+    PostLearnerRoutes,
+    PostSearchRoutes,
     BookingRoutes,
     SessionRoutes,
     WalletRoutes,
