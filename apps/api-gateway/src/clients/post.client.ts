@@ -14,6 +14,7 @@ import {
   SearchPostsQueryDto,
   SearchPostsResponseDto,
   PostRecommendationsResponseDto,
+  PostSuggestionsResponseDto,
 } from '@app/contracts/post';
 
 @Injectable()
@@ -64,6 +65,10 @@ export class PostClient {
     return this.send('post.mentor.close', { id, mentorId });
   }
 
+  deleteMentorPost(id: string, mentorId: string): Promise<MentorPostResponseDto> {
+    return this.send('post.mentor.delete', { id, mentorId });
+  }
+
   // Learner Request Methods
   createLearnerRequest(learnerId: string, dto: CreateLearnerRequestDto, userSnapshot?: any): Promise<LearnerRequestResponseDto> {
     return this.send('post.learner.create', { learnerId, dto, userSnapshot });
@@ -92,6 +97,10 @@ export class PostClient {
   // Search & Recommendations Methods
   searchCombined(query: SearchPostsQueryDto): Promise<SearchPostsResponseDto> {
     return this.send('post.search', query);
+  }
+
+  getSuggestions(q: string): Promise<PostSuggestionsResponseDto> {
+    return this.send('post.suggestions', { q });
   }
 
   getRecommendations(userId?: string, skills?: string[]): Promise<PostRecommendationsResponseDto> {

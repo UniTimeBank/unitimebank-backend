@@ -1,5 +1,5 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { MessagePattern, EventPattern, Payload } from '@nestjs/microservices';
 import { PostService } from './post.service';
 import {
   CreateMentorPostDto,
@@ -10,6 +10,7 @@ import {
   GetLearnerRequestsQueryDto,
   SearchPostsQueryDto,
 } from '@app/contracts/post';
+import { POST_EVENTS } from '@app/contracts/events';
 
 @Controller()
 export class PostController {
@@ -51,6 +52,11 @@ export class PostController {
   @MessagePattern('post.mentor.close')
   async closeMentorPost(@Payload() data: { id: string; mentorId: string }) {
     return this.postService.closeMentorPost(data.id, data.mentorId);
+  }
+
+  @MessagePattern('post.mentor.delete')
+  async deleteMentorPost(@Payload() data: { id: string; mentorId: string }) {
+    return this.postService.deleteMentorPost(data.id, data.mentorId);
   }
 
   // ====================================================================
@@ -102,8 +108,32 @@ export class PostController {
     return this.postService.searchCombined(query);
   }
 
+  @MessagePattern('post.suggestions')
+  async getSuggestions(@Payload() data: { q: string }) {
+    return this.postService.getSuggestions(data.q);
+  }
+
   @MessagePattern('post.recommendations')
   async getRecommendations(@Payload() data: { userId?: string; skills?: string[] }) {
     return this.postService.getRecommendations(data.userId, data.skills);
+  }
+
+  // ====================================================================
+  // EVENT PATTERN CONSUMERS (RABBITMQ ASYNC EVENTS)
+  // ====================================================================
+
+  @EventPattern(POST_EVENTS.POST_MODERATED)
+  async handlePostModerated(@Payload() data: any) {
+    await this.postService.handlePostModerated(data);
+  }
+
+  @EventPattern(POST_EVENTS.USER_PROFILE_UPDATED)
+  async handleUserProfileUpdated(@Payload() data: any) {
+    await this.postService.handleUserProfileUpdated(data);
+  }
+
+  @EventPattern(POST_EVENTS.USER_TRUST_SCORE_UPDATED)
+  async handleUserTrustScoreUpdated(@Payload() data: any) {
+    await this.postService.handleUserProfileUpdated(data);
   }
 }

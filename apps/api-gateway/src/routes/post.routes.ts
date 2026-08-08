@@ -8,7 +8,6 @@ import {
   Param,
   Query,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { PostClient } from '../clients/post.client';
@@ -26,6 +25,7 @@ import {
   SearchPostsQueryDto,
   SearchPostsResponseDto,
   PostRecommendationsResponseDto,
+  PostSuggestionsResponseDto,
 } from '@app/contracts/post';
 
 // ====================================================================
@@ -105,6 +105,16 @@ export class PostMentorRoutes {
   async closeMentorPost(@Param('id') id: string, @Req() req: any) {
     const mentorId = req.user?.id || req.headers['x-user-id'] || 'default-user';
     return this.postClient.closeMentorPost(id, mentorId);
+  }
+
+  /** Xóa mềm bài đăng của Mentor */
+  @Delete(':id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Xóa mềm bài dạy của Mentor' })
+  @ApiResponse({ status: 200, description: 'Đã xóa bài dạy thành công', type: MentorPostResponseDto })
+  async deleteMentorPost(@Param('id') id: string, @Req() req: any) {
+    const mentorId = req.user?.id || req.headers['x-user-id'] || 'default-user';
+    return this.postClient.deleteMentorPost(id, mentorId);
   }
 }
 
@@ -192,6 +202,15 @@ export class PostLearnerRoutes {
 @Controller('posts')
 export class PostSearchRoutes {
   constructor(private readonly postClient: PostClient) {}
+
+  /** Gợi ý từ khóa tức thì khi người dùng gõ vào SearchBar */
+  @Get('suggestions')
+  @ApiOperation({ summary: 'Lấy gợi ý từ khóa tức thì (Live Suggestions) khi gõ tìm kiếm' })
+  @ApiQuery({ name: 'q', required: true, example: 'Spring' })
+  @ApiResponse({ status: 200, description: 'Danh sách gợi ý kỹ năng, tiêu đề, danh mục', type: PostSuggestionsResponseDto })
+  async getSuggestions(@Query('q') q: string) {
+    return this.postClient.getSuggestions(q || '');
+  }
 
   /** Tìm kiếm đa chiều kết hợp Mentor Post & Learner Request */
   @Get('search')

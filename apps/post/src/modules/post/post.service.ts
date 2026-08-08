@@ -1,12 +1,13 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { ClientProxy } from '@nestjs/microservices';
 import { Model, Types } from 'mongoose';
 import {
   MentorPost,
   MentorPostDocument,
   LearnerRequest,
   LearnerRequestDocument,
-} from './modules/post/schemas';
+} from './schemas';
 import {
   CreateMentorPostDto,
   UpdateMentorPostDto,
@@ -21,24 +22,36 @@ import {
   SearchPostsQueryDto,
   SearchPostsResponseDto,
   PostRecommendationsResponseDto,
+  PostSuggestionsResponseDto,
   PostStatus,
   LearnerRequestStatus,
+  ModerationDecision,
 } from '@app/contracts/post';
+import {
+  PostCreatedEvent,
+  PostModeratedEvent,
+  UserProfileUpdatedEvent,
+  POST_EVENTS,
+} from '@app/contracts/events';
 
 @Injectable()
 export class PostService {
+  private readonly logger = new Logger(PostService.name);
+
   constructor(
     @InjectModel(MentorPost.name)
     private readonly mentorPostModel: Model<MentorPostDocument>,
     @InjectModel(LearnerRequest.name)
     private readonly learnerRequestModel: Model<LearnerRequestDocument>,
+    @Inject('NOTIFICATION_SERVICE')
+    private readonly notificationClient: ClientProxy,
   ) {}
 
   // ====================================================================
   // 1. MENTOR POST OPERATIONS (UC-02.1)
   // ====================================================================
 
-  /** Tạo bài đăng nhận dạy mới */
+  /** Tạo bài đăng nhận dạy mới và phát sự kiện post.created */
   async createMentorPost(
     mentorId: string,
     dto: CreateMentorPostDto,
@@ -58,7 +71,27 @@ export class PostService {
     });
 
     const saved = await post.save();
-    return this.mapMentorPostToDto(saved);
+    const resultDto = this.mapMentorPostToDto(saved);
+
+    // 📢 Phát sự kiện post.created sang Notification Service qua RabbitMQ
+    try {
+      const eventPayload: PostCreatedEvent = {
+        postId: resultDto._id,
+        mentorId: resultDto.mentorId,
+        mentorName: resultDto.mentorName || 'Mentor',
+        mentorAvatar: resultDto.mentorAvatar,
+        title: resultDto.title,
+        sessionType: resultDto.sessionType,
+        tags: resultDto.tags as any,
+        createdAt: resultDto.createdAt,
+      };
+      this.notificationClient.emit(POST_EVENTS.POST_CREATED, eventPayload);
+      this.logger.log(`Emitted event ${POST_EVENTS.POST_CREATED} for post: ${resultDto._id}`);
+    } catch (err) {
+      this.logger.error(`Failed to emit ${POST_EVENTS.POST_CREATED}: ${err.message}`);
+    }
+
+    return resultDto;
   }
 
   /** Lấy danh sách bài đăng của chính Mentor */
@@ -89,7 +122,7 @@ export class PostService {
     };
   }
 
-  /** Lấy danh sách bài dạy công khai kèm đa bộ lọc (skill, category, sessionType, trustScoreMin, dayOfWeek, search) */
+  /** Lấy danh sách bài dạy công khai kèm đa bộ lọc */
   async getMentorPosts(query: GetMentorPostsQueryDto): Promise<GetMentorPostsResponseDto> {
     const page = Math.max(1, query.page || 1);
     const limit = Math.max(1, query.limit || 10);
@@ -191,6 +224,25 @@ export class PostService {
     return this.updateMentorPost(id, mentorId, { status: PostStatus.CLOSED });
   }
 
+  /** Xóa mềm bài đăng của Mentor */
+  async deleteMentorPost(id: string, mentorId: string): Promise<MentorPostResponseDto> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('ID bài đăng không hợp lệ');
+    }
+    const post = await this.mentorPostModel.findById(id).exec();
+    if (!post) {
+      throw new NotFoundException('Không tìm thấy bài đăng nhận dạy');
+    }
+    if (post.mentorId !== mentorId) {
+      throw new ForbiddenException('Bạn không có quyền xóa bài đăng này');
+    }
+
+    post.status = PostStatus.ARCHIVED;
+    post.removedAt = new Date();
+    const updated = await post.save();
+    return this.mapMentorPostToDto(updated);
+  }
+
   // ====================================================================
   // 2. LEARNER REQUEST OPERATIONS (UC-02.2)
   // ====================================================================
@@ -222,7 +274,7 @@ export class PostService {
     return this.mapLearnerRequestToDto(saved);
   }
 
-  /** Lấy danh sách yêu cầu tìm mentor của chính Learner */
+  /** Lấy danh sách yêu cầu của chính Learner */
   async getMyLearnerRequests(
     learnerId: string,
     query: GetLearnerRequestsQueryDto,
@@ -339,8 +391,47 @@ export class PostService {
   }
 
   // ====================================================================
-  // 3. MULTI-DIMENSIONAL SEARCH (UC-02.3)
+  // 3. MULTI-DIMENSIONAL SEARCH & LIVE SUGGESTIONS (UC-02.3)
   // ====================================================================
+
+  /** Gợi ý từ khóa tức thì (Live Instant Suggestions) khi người dùng gõ vào SearchBar */
+  async getSuggestions(q: string): Promise<PostSuggestionsResponseDto> {
+    if (!q || q.trim().length === 0) {
+      return { skills: [], titles: [], categories: [] };
+    }
+
+    const regex = new RegExp(q.trim(), 'i');
+
+    const [skillTags, mentorTitles, learnerSkills] = await Promise.all([
+      this.mentorPostModel.distinct('tags.skillName', {
+        'tags.skillName': regex,
+        status: PostStatus.PUBLISHED,
+      }),
+      this.mentorPostModel
+        .find({ title: regex, status: PostStatus.PUBLISHED })
+        .select('title')
+        .limit(5)
+        .exec(),
+      this.learnerRequestModel.distinct('skillNeeded', {
+        skillNeeded: regex,
+        status: LearnerRequestStatus.OPEN,
+      }),
+    ]);
+
+    const combinedSkills = Array.from(new Set([...skillTags, ...learnerSkills])).slice(0, 8);
+    const titles = mentorTitles.map((p) => p.title);
+
+    const categories = await this.mentorPostModel.distinct('tags.category', {
+      'tags.skillName': { $in: combinedSkills },
+      status: PostStatus.PUBLISHED,
+    });
+
+    return {
+      skills: combinedSkills,
+      titles,
+      categories: categories.filter(Boolean),
+    };
+  }
 
   /** Tìm kiếm đa chiều kết hợp Mentor Post & Learner Request */
   async searchCombined(query: SearchPostsQueryDto): Promise<SearchPostsResponseDto> {
@@ -423,7 +514,6 @@ export class PostService {
       this.learnerRequestModel.find(learnerFilter).sort({ createdAt: -1 }).limit(6).exec(),
     ]);
 
-    // Nếu lọc theo sở thích không có đủ dữ liệu, fallback lấy các bài có điểm uy tín cao nhất
     let fallbackMentorPosts: MentorPostDocument[] = mentorPosts as MentorPostDocument[];
     if (fallbackMentorPosts.length < 3) {
       fallbackMentorPosts = (await this.mentorPostModel
@@ -446,6 +536,62 @@ export class PostService {
       recommendedMentorPosts: fallbackMentorPosts.map((p) => this.mapMentorPostToDto(p)),
       recommendedLearnerRequests: fallbackLearnerRequests.map((r) => this.mapLearnerRequestToDto(r)),
     };
+  }
+
+  // ====================================================================
+  // 5. EVENT CONSUMERS (INTER-MICROSERVICE SYNC)
+  // ====================================================================
+
+  /** Xử lý sự kiện Hậu kiểm bài đăng từ Moderation Service */
+  async handlePostModerated(event: PostModeratedEvent): Promise<void> {
+    this.logger.log(`Processing post.moderated event for ${event.postType} ID: ${event.postId}`);
+
+    const isRemoved = event.decision === 'REMOVE' || event.decision === ModerationDecision.REJECTED;
+
+    if (event.postType === 'MENTOR_POST' || !event.postType) {
+      if (Types.ObjectId.isValid(event.postId)) {
+        await this.mentorPostModel.findByIdAndUpdate(event.postId, {
+          moderation: {
+            decision: event.decision,
+            reason: event.reason || '',
+            moderatorId: event.moderatorId,
+            decidedAt: new Date(event.decidedAt || Date.now()),
+          },
+          ...(isRemoved && {
+            status: PostStatus.ARCHIVED,
+            removedAt: new Date(),
+          }),
+        });
+      }
+    } else if (event.postType === 'LEARNER_REQUEST') {
+      if (Types.ObjectId.isValid(event.postId)) {
+        await this.learnerRequestModel.findByIdAndUpdate(event.postId, {
+          ...(isRemoved && {
+            status: LearnerRequestStatus.CANCELLED,
+            removedAt: new Date(),
+          }),
+        });
+      }
+    }
+  }
+
+  /** Đồng bộ thông tin Snapshot khi User Profile thay đổi (tên, avatar, trustScore) */
+  async handleUserProfileUpdated(event: UserProfileUpdatedEvent): Promise<void> {
+    this.logger.log(`Syncing profile snapshots for User ID: ${event.userId}`);
+
+    const updateFields: any = {};
+    if (event.displayName) updateFields.mentorName = event.displayName;
+    if (event.avatarUrl) updateFields.mentorAvatar = event.avatarUrl;
+    if (event.trustScore !== undefined) updateFields.trustScoreSnapshot = event.trustScore;
+
+    const learnerUpdateFields: any = {};
+    if (event.displayName) learnerUpdateFields.learnerName = event.displayName;
+    if (event.avatarUrl) learnerUpdateFields.learnerAvatar = event.avatarUrl;
+
+    await Promise.all([
+      this.mentorPostModel.updateMany({ mentorId: event.userId }, { $set: updateFields }).exec(),
+      this.learnerRequestModel.updateMany({ learnerId: event.userId }, { $set: learnerUpdateFields }).exec(),
+    ]);
   }
 
   // ====================================================================
