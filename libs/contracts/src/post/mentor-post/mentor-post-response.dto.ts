@@ -24,6 +24,9 @@ export class MentorPostResponseDto {
   @ApiPropertyOptional({ example: 'Lộ trình học thực chiến...', description: 'Mô tả chi tiết' })
   description?: string;
 
+  @ApiPropertyOptional({ example: 'Tóm tắt bài dạy...', description: 'Mô tả tóm tắt trên thẻ card' })
+  shortDescription?: string;
+
   @ApiProperty({ enum: SessionType, example: SessionType.BOTH, description: 'Hình thức lớp học' })
   sessionType: SessionType;
 

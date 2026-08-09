@@ -27,6 +27,9 @@ export class LearnerRequestResponseDto {
   @ApiPropertyOptional({ example: 'Cần bạn nào kèm 1:1 phần chuỗi số...', description: 'Mô tả nhu cầu' })
   description?: string;
 
+  @ApiPropertyOptional({ example: 'Tóm tắt nhu cầu...', description: 'Mô tả tóm tắt trên thẻ card' })
+  shortDescription?: string;
+
   @ApiProperty({ enum: SessionType, example: SessionType.ONE_ON_ONE, description: 'Hình thức lớp' })
   sessionType: SessionType;
 

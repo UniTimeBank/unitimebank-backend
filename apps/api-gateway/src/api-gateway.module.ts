@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthClient } from './clients/auth.client';
 import { UserClient } from './clients/user.client';
@@ -17,8 +18,12 @@ import { WalletRoutes } from './routes/wallet.routes';
 import { ModerationRoutes } from './routes/moderation.routes';
 import { NotificationRoutes } from './routes/notification.routes';
 
+import { CommonModule } from '@app/common';
+
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    CommonModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

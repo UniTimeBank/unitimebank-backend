@@ -36,6 +36,9 @@ export class LearnerRequest {
   @Prop()
   description: string;
 
+  @Prop()
+  shortDescription: string;
+
   @Prop({ type: String, enum: SessionType, default: SessionType.ONE_ON_ONE })
   sessionType: SessionType;
 

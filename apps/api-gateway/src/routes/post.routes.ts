@@ -8,9 +8,12 @@ import {
   Param,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { JwtAuthGuard } from '@app/common';
 import { PostClient } from '../clients/post.client';
+import { UserClient } from '../clients/user.client';
 import {
   CreateMentorPostDto,
   UpdateMentorPostDto,
@@ -35,32 +38,49 @@ import {
 @ApiTags('Post - Bài đăng của Người dạy (Mentor)')
 @Controller('posts/mentor')
 export class PostMentorRoutes {
-  constructor(private readonly postClient: PostClient) {}
+  constructor(
+    private readonly postClient: PostClient,
+    private readonly userClient: UserClient,
+  ) {}
 
   /** Mentor tạo bài đăng nhận dạy mới */
   @Post()
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Mentor tạo bài đăng nhận dạy mới' })
   @ApiBody({ type: CreateMentorPostDto })
   @ApiResponse({ status: 201, description: 'Tạo bài đăng thành công', type: MentorPostResponseDto })
   @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
   async createMentorPost(@Body() dto: CreateMentorPostDto, @Req() req: any) {
-    const mentorId = req.user?.id || req.headers['x-user-id'] || 'default-user';
-    const userSnapshot = {
-      name: req.user?.displayName,
-      avatar: req.user?.avatarUrl,
-      trustScore: req.user?.trustScore,
-    };
+    const mentorId = req.user?.id || req.user?.sub;
+    let userSnapshot: any = undefined;
+    if (req.headers.authorization) {
+      try {
+        const profile = await this.userClient.getMyProfile({ Authorization: req.headers.authorization });
+        userSnapshot = {
+          name: profile?.displayName || profile?.fullName || 'Mentor',
+          avatar: profile?.avatarUrl || '',
+          trustScore: profile?.trustScore ?? 100,
+        };
+      } catch {
+        userSnapshot = {
+          name: req.user?.displayName || req.user?.email || 'Mentor',
+          avatar: req.user?.avatarUrl || '',
+          trustScore: req.user?.trustScore ?? 100,
+        };
+      }
+    }
     return this.postClient.createMentorPost(mentorId, dto, userSnapshot);
   }
 
   /** Lấy danh sách bài đăng của chính Mentor */
   @Get('my')
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Lấy danh sách bài đăng của chính tôi (Mentor)' })
   @ApiResponse({ status: 200, description: 'Danh sách bài đăng của tôi', type: GetMentorPostsResponseDto })
   async getMyMentorPosts(@Query() query: GetMentorPostsQueryDto, @Req() req: any) {
-    const mentorId = req.user?.id || req.headers['x-user-id'] || 'default-user';
+    const mentorId = req.user?.id || req.user?.sub;
     return this.postClient.getMyMentorPosts(mentorId, query);
   }
 
@@ -83,6 +103,7 @@ export class PostMentorRoutes {
 
   /** Cập nhật nội dung bài dạy */
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cập nhật bài dạy của Mentor' })
   @ApiBody({ type: UpdateMentorPostDto })
@@ -93,27 +114,29 @@ export class PostMentorRoutes {
     @Body() dto: UpdateMentorPostDto,
     @Req() req: any,
   ) {
-    const mentorId = req.user?.id || req.headers['x-user-id'] || 'default-user';
+    const mentorId = req.user?.id || req.user?.sub;
     return this.postClient.updateMentorPost(id, mentorId, dto);
   }
 
   /** Đóng bài dạy (ngừng nhận học viên) */
   @Post(':id/close')
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Đóng bài dạy (ngừng nhận học viên)' })
   @ApiResponse({ status: 200, description: 'Đã đóng bài dạy thành công', type: MentorPostResponseDto })
   async closeMentorPost(@Param('id') id: string, @Req() req: any) {
-    const mentorId = req.user?.id || req.headers['x-user-id'] || 'default-user';
+    const mentorId = req.user?.id || req.user?.sub;
     return this.postClient.closeMentorPost(id, mentorId);
   }
 
   /** Xóa mềm bài đăng của Mentor */
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Xóa mềm bài dạy của Mentor' })
   @ApiResponse({ status: 200, description: 'Đã xóa bài dạy thành công', type: MentorPostResponseDto })
   async deleteMentorPost(@Param('id') id: string, @Req() req: any) {
-    const mentorId = req.user?.id || req.headers['x-user-id'] || 'default-user';
+    const mentorId = req.user?.id || req.user?.sub;
     return this.postClient.deleteMentorPost(id, mentorId);
   }
 }
@@ -125,30 +148,46 @@ export class PostMentorRoutes {
 @ApiTags('Post - Yêu cầu tìm Người dạy (Learner Request)')
 @Controller('posts/learner')
 export class PostLearnerRoutes {
-  constructor(private readonly postClient: PostClient) {}
+  constructor(
+    private readonly postClient: PostClient,
+    private readonly userClient: UserClient,
+  ) {}
 
   /** Learner tạo bài tìm người dạy */
   @Post()
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Tạo bài tìm người dạy (tự động tính 1 phút = 1 Credit)' })
   @ApiBody({ type: CreateLearnerRequestDto })
   @ApiResponse({ status: 201, description: 'Tạo yêu cầu thành công', type: LearnerRequestResponseDto })
   async createLearnerRequest(@Body() dto: CreateLearnerRequestDto, @Req() req: any) {
-    const learnerId = req.user?.id || req.headers['x-user-id'] || 'default-user';
-    const userSnapshot = {
-      name: req.user?.displayName,
-      avatar: req.user?.avatarUrl,
-    };
+    const learnerId = req.user?.id || req.user?.sub;
+    let userSnapshot: any = undefined;
+    if (req.headers.authorization) {
+      try {
+        const profile = await this.userClient.getMyProfile({ Authorization: req.headers.authorization });
+        userSnapshot = {
+          name: profile?.displayName || profile?.fullName || 'Learner',
+          avatar: profile?.avatarUrl || '',
+        };
+      } catch {
+        userSnapshot = {
+          name: req.user?.displayName || req.user?.email || 'Learner',
+          avatar: req.user?.avatarUrl || '',
+        };
+      }
+    }
     return this.postClient.createLearnerRequest(learnerId, dto, userSnapshot);
   }
 
   /** Lấy danh sách yêu cầu của chính tôi */
   @Get('my')
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Lấy danh sách bài tìm người dạy của chính tôi' })
   @ApiResponse({ status: 200, description: 'Danh sách yêu cầu của tôi', type: GetLearnerRequestsResponseDto })
   async getMyLearnerRequests(@Query() query: GetLearnerRequestsQueryDto, @Req() req: any) {
-    const learnerId = req.user?.id || req.headers['x-user-id'] || 'default-user';
+    const learnerId = req.user?.id || req.user?.sub;
     return this.postClient.getMyLearnerRequests(learnerId, query);
   }
 
@@ -170,6 +209,7 @@ export class PostLearnerRoutes {
 
   /** Cập nhật yêu cầu */
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cập nhật bài tìm người dạy' })
   @ApiBody({ type: UpdateLearnerRequestDto })
@@ -179,17 +219,18 @@ export class PostLearnerRoutes {
     @Body() dto: UpdateLearnerRequestDto,
     @Req() req: any,
   ) {
-    const learnerId = req.user?.id || req.headers['x-user-id'] || 'default-user';
+    const learnerId = req.user?.id || req.user?.sub;
     return this.postClient.updateLearnerRequest(id, learnerId, dto);
   }
 
   /** Hủy yêu cầu */
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Hủy bài tìm người dạy' })
   @ApiResponse({ status: 200, description: 'Hủy thành công', type: LearnerRequestResponseDto })
   async cancelLearnerRequest(@Param('id') id: string, @Req() req: any) {
-    const learnerId = req.user?.id || req.headers['x-user-id'] || 'default-user';
+    const learnerId = req.user?.id || req.user?.sub;
     return this.postClient.cancelLearnerRequest(id, learnerId);
   }
 }

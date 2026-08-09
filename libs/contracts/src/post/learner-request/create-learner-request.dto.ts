@@ -58,6 +58,14 @@ export class CreateLearnerRequestDto {
   description?: string;
 
   @ApiPropertyOptional({
+    example: 'Cần tìm người hỗ trợ ôn tập Giải tích 1 trước đợt thi giữa kỳ.',
+    description: 'Mô tả tóm tắt hiển thị trên thẻ card',
+  })
+  @IsString()
+  @IsOptional()
+  shortDescription?: string;
+
+  @ApiPropertyOptional({
     enum: SessionType,
     default: SessionType.ONE_ON_ONE,
     example: SessionType.ONE_ON_ONE,

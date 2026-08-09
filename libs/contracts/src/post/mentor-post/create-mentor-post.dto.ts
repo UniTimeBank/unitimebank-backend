@@ -64,6 +64,14 @@ export class CreateMentorPostDto {
   description?: string;
 
   @ApiPropertyOptional({
+    example: 'Hướng dẫn xây dựng Microservices thực chiến với Spring Boot & Docker.',
+    description: 'Mô tả tóm tắt hiển thị trên thẻ card',
+  })
+  @IsString()
+  @IsOptional()
+  shortDescription?: string;
+
+  @ApiPropertyOptional({
     enum: SessionType,
     default: SessionType.BOTH,
     example: SessionType.BOTH,

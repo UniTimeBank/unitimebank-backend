@@ -20,7 +20,7 @@ import {
     CommonModule,
     JwtModule.register({
       global: true,
-      secret: process.env.JWT_SECRET || 'default-secret',
+      secret: process.env.JWT_SECRET || 'unitimebank-shared-jwt-secret-key-2026',
       signOptions: { expiresIn: '1d' },
     }),
     TypeOrmModule.forRoot({

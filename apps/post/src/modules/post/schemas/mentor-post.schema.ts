@@ -75,6 +75,9 @@ export class MentorPost {
   @Prop()
   description: string;
 
+  @Prop()
+  shortDescription: string;
+
   @Prop({ type: String, enum: SessionType, default: SessionType.BOTH })
   sessionType: SessionType;
 

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ClientProxy, ClientProxyFactory, Transport } from '@nestjs/microservices';
+import { firstValueFrom, timeout } from 'rxjs';
 import {
   CreateMentorPostDto,
   UpdateMentorPostDto,
@@ -33,7 +34,7 @@ export class PostClient {
   }
 
   send<T>(pattern: string, data: any): Promise<T> {
-    return this.client.send<T>(pattern, data).toPromise() as Promise<T>;
+    return firstValueFrom(this.client.send<T>(pattern, data).pipe(timeout(10000)));
   }
 
   emit<T>(pattern: string, data: any) {

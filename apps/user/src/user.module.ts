@@ -76,7 +76,7 @@ import {
           urls: [process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672'],
           queue: 'wallet_queue',
           queueOptions: {
-            durable: true,
+            durable: false,
           },
         },
       },

@@ -20,7 +20,7 @@ import { PostController, PostService, MentorPost, MentorPostSchema, LearnerReque
           urls: [process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672'],
           queue: 'notification_queue',
           queueOptions: {
-            durable: true,
+            durable: false,
           },
         },
       },
