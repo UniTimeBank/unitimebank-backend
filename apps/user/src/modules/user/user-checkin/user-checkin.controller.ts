@@ -13,14 +13,14 @@ import {
 import { JwtAuthGuard } from '@app/common/guards/jwt-auth.guard';
 
 @ApiTags('User - Daily Check-in Streak')
-@Controller('users/me/check-in')
+@Controller('users/me')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class UserCheckinController {
   constructor(private readonly userCheckinService: UserCheckinService) {}
 
   /** Thực hiện điểm danh ngày hôm nay */
-  @Post()
+  @Post(['check-in', 'checkin'])
   @ApiOperation({ summary: 'Điểm danh hàng ngày để nhận thưởng và duy trì chuỗi Streak' })
   @ApiResponse({
     status: 201,
@@ -33,7 +33,7 @@ export class UserCheckinController {
   }
 
   /** Lấy trạng thái điểm danh hiện tại */
-  @Get()
+  @Get(['check-in', 'checkin', 'streak'])
   @ApiOperation({ summary: 'Lấy thông tin chuỗi Streak và trạng thái điểm danh hiện tại' })
   @ApiResponse({
     status: 200,

@@ -1,5 +1,10 @@
 import {
-  Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn, CreateDateColumn,
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  ManyToOne,
+  JoinColumn,
+  CreateDateColumn,
 } from 'typeorm';
 import { RewardType } from '../enums';
 import { UserProfile } from './user-profile.entity';
@@ -13,7 +18,7 @@ export class OnboardingReward {
   userId: string;
 
   @ManyToOne(() => UserProfile, (profile) => profile.onboardingRewards, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({ name: 'user_id', referencedColumnName: 'userId' })
   userProfile: UserProfile;
 
   @Column({ type: 'enum', enum: RewardType, name: 'reward_type' })

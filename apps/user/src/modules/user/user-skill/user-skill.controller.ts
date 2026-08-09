@@ -110,6 +110,7 @@ export class UserSkillController {
     @Req() req: any,
     @Param('skillId') skillId: string,
   ): Promise<{ message: string }> {
-    return this.userSkillService.deleteSkill(req.user.id, skillId);
+    await this.userSkillService.deleteSkill(req.user.id, skillId);
+    return { message: 'Xóa kỹ năng thành công' };
   }
 }

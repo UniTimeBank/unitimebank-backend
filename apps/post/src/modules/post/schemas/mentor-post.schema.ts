@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
-import { SessionType, PostStatus, SkillCategoryName, ModerationDecision } from '../enums';
+import { SessionType, PostStatus, SkillCategoryName, ModerationDecision, PostScheduleType } from '../enums';
 
 export type MentorPostDocument = HydratedDocument<MentorPost>;
 
@@ -77,6 +77,15 @@ export class MentorPost {
 
   @Prop({ type: String, enum: SessionType, default: SessionType.BOTH })
   sessionType: SessionType;
+
+  @Prop({ type: String, enum: PostScheduleType, default: PostScheduleType.ALWAYS_OPEN })
+  scheduleType: PostScheduleType;
+
+  @Prop({ type: String, required: false })
+  startDate?: string;
+
+  @Prop({ type: String, required: false })
+  endDate?: string;
 
   @Prop({ type: [PostTag], default: [] })
   tags: PostTag[];

@@ -66,6 +66,20 @@ export class UserRoutes {
     return this.userClient.updateProfile(dto, headers);
   }
 
+  /** Lấy danh sách kỹ năng của user hiện tại */
+  @Get('me/skills')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy danh sách kỹ năng của tôi' })
+  @ApiResponse({
+    status: 200,
+    description: 'Danh sách kỹ năng',
+    type: GetMySkillsResponseDto,
+  })
+  async getMySkillsRoute(@Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.getMySkills(headers);
+  }
+
   /** Lấy thông tin profile công khai của một user */
   @Get(':userId')
   @ApiOperation({ summary: 'Lấy thông tin profile công khai' })
@@ -75,7 +89,11 @@ export class UserRoutes {
     type: GetPublicProfileResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Không tìm thấy người dùng' })
-  async getPublicProfile(@Param('userId') userId: string) {
+  async getPublicProfile(@Param('userId') userId: string, @Req() req: any) {
+    if (userId === 'me') {
+      const headers = { Authorization: req.headers.authorization };
+      return this.userClient.getMyProfile(headers);
+    }
     return this.userClient.getPublicProfile(userId);
   }
 
@@ -88,7 +106,11 @@ export class UserRoutes {
     type: GetMySkillsResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Không tìm thấy người dùng' })
-  async getSkillsByUserId(@Param('userId') userId: string) {
+  async getSkillsByUserId(@Param('userId') userId: string, @Req() req: any) {
+    if (userId === 'me') {
+      const headers = { Authorization: req.headers.authorization };
+      return this.userClient.getMySkills(headers);
+    }
     return this.userClient.getSkillsByUserId(userId);
   }
 }

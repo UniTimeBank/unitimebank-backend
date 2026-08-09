@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { SessionType, PostStatus } from '../enums';
+import { SessionType, PostStatus, PostScheduleType } from '../enums';
 import { PostTagDto, TimeSlotDto } from './create-mentor-post.dto';
 
 export class MentorPostResponseDto {
@@ -26,6 +26,19 @@ export class MentorPostResponseDto {
 
   @ApiProperty({ enum: SessionType, example: SessionType.BOTH, description: 'Hình thức lớp học' })
   sessionType: SessionType;
+
+  @ApiPropertyOptional({
+    enum: PostScheduleType,
+    example: PostScheduleType.ALWAYS_OPEN,
+    description: 'Cơ chế lịch bài đăng',
+  })
+  scheduleType?: PostScheduleType;
+
+  @ApiPropertyOptional({ example: '2026-08-15', description: 'Ngày bắt đầu khóa học/đợt ôn tập' })
+  startDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-08-30', description: 'Ngày kết thúc khóa học/đợt ôn tập' })
+  endDate?: string;
 
   @ApiProperty({ type: [PostTagDto], description: 'Danh sách kỹ năng' })
   tags: PostTagDto[];

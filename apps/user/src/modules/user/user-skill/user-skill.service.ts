@@ -58,27 +58,37 @@ export class UserSkillService {
   }
 
   /**
-   * Thêm kỹ năng mới
+   * Thêm kỹ năng mới (tự động khởi tạo profile nếu tài khoản mới chưa có record trong bảng user_profile)
    */
   async createSkill(userId: string, dto: CreateSkillDto): Promise<SkillDto> {
-    // Kiểm tra profile tồn tại
-    const profile = await this.userProfileRepo.findOne({ where: { userId } });
+    // Đảm bảo profile tồn tại
+    let profile = await this.userProfileRepo.findOne({ where: { userId } });
     if (!profile) {
-      throw new NotFoundException('Không tìm thấy profile');
+      profile = this.userProfileRepo.create({
+        userId,
+        displayName: '',
+        avatarUrl: '',
+        bio: '',
+        trustScore: 30,
+        onboardingCompleted: false,
+      });
+      await this.userProfileRepo.save(profile);
     }
 
-    // Kiểm tra trùng tên kỹ năng và danh mục của cùng 1 user
-    const existing = await this.userSkillRepo.findOne({
-      where: { userId, skillName: dto.skillName, category: dto.category },
-    });
+    const trimmedName = dto.skillName.trim();
+    // Kiểm tra trùng tên kỹ năng của cùng 1 user (không phân biệt danh mục và không phân biệt hoa thường)
+    const allUserSkills = await this.userSkillRepo.find({ where: { userId } });
+    const isDuplicate = allUserSkills.some(
+      (s) => s.skillName.trim().toLowerCase() === trimmedName.toLowerCase(),
+    );
 
-    if (existing) {
-      throw new ConflictException('Kỹ năng này đã tồn tại trong hồ sơ của bạn');
+    if (isDuplicate) {
+      throw new ConflictException(`Kỹ năng "${trimmedName}" đã tồn tại trong hồ sơ của bạn.`);
     }
 
     const skill = this.userSkillRepo.create({
       userId,
-      skillName: dto.skillName.trim(),
+      skillName: trimmedName,
       category: dto.category,
       isStrong: dto.isStrong ?? false,
     });
@@ -106,15 +116,13 @@ export class UserSkillService {
 
     if (dto.skillName !== undefined) {
       const trimmedName = dto.skillName.trim();
-      const categoryToCheck = dto.category || skill.category;
+      const allUserSkills = await this.userSkillRepo.find({ where: { userId } });
+      const duplicate = allUserSkills.find(
+        (s) => s.id !== skillId && s.skillName.trim().toLowerCase() === trimmedName.toLowerCase(),
+      );
 
-      // Kiểm tra trùng lặp nếu đổi tên hoặc category
-      const existing = await this.userSkillRepo.findOne({
-        where: { userId, skillName: trimmedName, category: categoryToCheck },
-      });
-
-      if (existing && existing.id !== skillId) {
-        throw new ConflictException('Tên kỹ năng bị trùng trong cùng danh mục');
+      if (duplicate) {
+        throw new ConflictException(`Kỹ năng "${trimmedName}" đã tồn tại trong hồ sơ của bạn.`);
       }
 
       skill.skillName = trimmedName;
@@ -133,32 +141,30 @@ export class UserSkillService {
   }
 
   /**
-   * Xóa kỹ năng khỏi profile
+   * Xoá kỹ năng
    */
-  async deleteSkill(userId: string, skillId: string): Promise<{ message: string }> {
+  async deleteSkill(userId: string, skillId: string): Promise<void> {
     const skill = await this.userSkillRepo.findOne({
       where: { id: skillId, userId },
     });
 
     if (!skill) {
-      throw new NotFoundException('Không tìm thấy kỹ năng');
+      throw new NotFoundException('Không tìm thấy kỹ năng để xoá');
     }
 
     await this.userSkillRepo.remove(skill);
-
-    return { message: 'Xóa kỹ năng thành công' };
   }
 
   /**
-   * Chuyển đổi entity sang DTO
+   * Chuyển Entity sang DTO
    */
-  private toSkillDto(skill: UserSkill): SkillDto {
+  private toSkillDto(entity: UserSkill): SkillDto {
     return {
-      id: skill.id,
-      skillName: skill.skillName,
-      category: skill.category,
-      isStrong: skill.isStrong,
-      addedAt: skill.addedAt,
+      id: entity.id,
+      skillName: entity.skillName,
+      category: entity.category,
+      isStrong: entity.isStrong,
+      addedAt: entity.addedAt,
     };
   }
 }

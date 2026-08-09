@@ -8,11 +8,17 @@ export enum SessionType {
   BOTH = 'BOTH',
 }
 
+export enum PostScheduleType {
+  ALWAYS_OPEN = 'ALWAYS_OPEN',       // Dạy kèm thường xuyên (Luôn mở theo tuần)
+  LIMITED_TIME = 'LIMITED_TIME',     // Lớp học / Ôn thi cấp tốc (Có thời hạn startDate - endDate)
+}
+
 export enum PostStatus {
   DRAFT = 'DRAFT',
   PUBLISHED = 'PUBLISHED',
   CLOSED = 'CLOSED',
   ARCHIVED = 'ARCHIVED',
+  EXPIRED = 'EXPIRED',
 }
 
 export enum LearnerRequestStatus {

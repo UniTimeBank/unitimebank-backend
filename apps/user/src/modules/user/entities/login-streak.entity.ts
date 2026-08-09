@@ -1,5 +1,10 @@
 import {
-  Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn, CreateDateColumn,
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  ManyToOne,
+  JoinColumn,
+  CreateDateColumn,
 } from 'typeorm';
 import { UserProfile } from './user-profile.entity';
 
@@ -12,7 +17,7 @@ export class LoginStreak {
   userId: string;
 
   @ManyToOne(() => UserProfile, (profile) => profile.loginStreaks, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({ name: 'user_id', referencedColumnName: 'userId' })
   userProfile: UserProfile;
 
   @Column({ name: 'login_date', type: 'date' })

@@ -10,7 +10,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { SessionType, SkillCategoryName } from '../enums';
+import { SessionType, SkillCategoryName, PostScheduleType } from '../enums';
 
 export class PostTagDto {
   @ApiProperty({ example: 'Spring Boot', description: 'Tên kỹ năng' })
@@ -72,6 +72,32 @@ export class CreateMentorPostDto {
   @IsEnum(SessionType)
   @IsOptional()
   sessionType?: SessionType;
+
+  @ApiPropertyOptional({
+    enum: PostScheduleType,
+    default: PostScheduleType.ALWAYS_OPEN,
+    example: PostScheduleType.ALWAYS_OPEN,
+    description: 'Cơ chế lịch bài đăng (ALWAYS_OPEN: Luôn mở theo tuần, LIMITED_TIME: Có thời hạn theo đợt)',
+  })
+  @IsEnum(PostScheduleType)
+  @IsOptional()
+  scheduleType?: PostScheduleType;
+
+  @ApiPropertyOptional({
+    example: '2026-08-15',
+    description: 'Ngày bắt đầu khóa học/đợt ôn tập (áp dụng khi scheduleType là LIMITED_TIME)',
+  })
+  @IsString()
+  @IsOptional()
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-08-30',
+    description: 'Ngày kết thúc khóa học/đợt ôn tập (áp dụng khi scheduleType là LIMITED_TIME)',
+  })
+  @IsString()
+  @IsOptional()
+  endDate?: string;
 
   @ApiProperty({
     type: [PostTagDto],
