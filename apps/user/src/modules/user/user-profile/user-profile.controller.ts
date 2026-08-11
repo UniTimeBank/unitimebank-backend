@@ -8,7 +8,12 @@ import {
   Request,
 } from '@nestjs/common';
 import { UserProfileService } from './user-profile.service';
-import { UpdateProfileDto, GetUserProfileResponseDto, GetPublicProfileResponseDto } from '@app/contracts/user';
+import {
+  UpdateProfileDto,
+  GetUserProfileResponseDto,
+  GetPublicProfileResponseDto,
+  GetOnboardingTasksResponseDto,
+} from '@app/contracts/user';
 import { JwtAuthGuard } from '@app/common/guards/jwt-auth.guard';
 
 @Controller('users')
@@ -23,6 +28,16 @@ export class UserProfileController {
   @UseGuards(JwtAuthGuard)
   async getMyProfile(@Request() req): Promise<GetUserProfileResponseDto> {
     return this.userProfileService.getMyProfile(req.user.id);
+  }
+
+  /**
+   * GET /users/me/tasks
+   * Lấy danh sách tiến độ 4 nhiệm vụ nhận Credit
+   */
+  @Get('me/tasks')
+  @UseGuards(JwtAuthGuard)
+  async getOnboardingTasks(@Request() req): Promise<GetOnboardingTasksResponseDto> {
+    return this.userProfileService.getOnboardingTasks(req.user.id);
   }
 
   /**

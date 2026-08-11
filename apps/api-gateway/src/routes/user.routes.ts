@@ -17,6 +17,7 @@ import {
   GetFollowingResponseDto,
   CheckInResponseDto,
   GetCheckInStatusResponseDto,
+  GetOnboardingTasksResponseDto,
   CreateRecurringScheduleDto,
   UpdateRecurringScheduleDto,
   CreateScheduleExceptionDto,
@@ -48,6 +49,20 @@ export class UserRoutes {
   async getMyProfile(@Req() req: any) {
     const headers = { Authorization: req.headers.authorization };
     return this.userClient.getMyProfile(headers);
+  }
+
+  /** Lấy danh sách 4 nhiệm vụ nhận Credit */
+  @Get('me/tasks')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy tiến độ 4 nhiệm vụ nhận Credit' })
+  @ApiResponse({
+    status: 200,
+    description: 'Danh sách 4 nhiệm vụ và tiến độ',
+    type: GetOnboardingTasksResponseDto,
+  })
+  async getOnboardingTasks(@Req() req: any) {
+    const headers = { Authorization: req.headers.authorization };
+    return this.userClient.getOnboardingTasks(headers);
   }
 
   /** Cập nhật profile của user hiện tại */

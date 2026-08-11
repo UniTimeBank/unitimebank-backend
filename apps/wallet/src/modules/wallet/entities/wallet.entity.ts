@@ -21,6 +21,12 @@ export class Wallet {
   @Column({ name: 'low_balance_threshold', default: 5 })
   lowBalanceThreshold: number;
 
+  @Column({ name: 'total_earned', default: 0 })
+  totalEarned: number;
+
+  @Column({ name: 'total_spent', default: 0 })
+  totalSpent: number;
+
   @VersionColumn()
   version: number;
 

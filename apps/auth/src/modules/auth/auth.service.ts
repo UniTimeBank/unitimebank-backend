@@ -109,6 +109,7 @@ export class AuthService {
         eventType: 'USER_REGISTERED',
         userId: userAccount.id,
         email: userAccount.email,
+        displayName: dto.displayName,
         timestamp: new Date().toISOString(),
       });
       // Gửi email chào mừng (bất đồng bộ)
@@ -170,9 +171,10 @@ export class AuthService {
   // ==================== ĐĂNG NHẬP GOOGLE ====================
 
   async googleLogin(dto: GoogleAuthDto) {
-    let email: string = '';
-    let googleSubId: string = '';
+    let email: string | undefined;
+    let googleSubId: string | undefined;
     let name: string | undefined = dto.displayName;
+    let picture: string | undefined;
 
     try {
       if (process.env.GOOGLE_CLIENT_ID) {
@@ -185,6 +187,7 @@ export class AuthService {
           email = payload.email;
           googleSubId = payload.sub || payload.email;
           name = name || payload.name;
+          picture = picture || payload.picture;
         }
       }
     } catch {
@@ -200,6 +203,7 @@ export class AuthService {
             email = payload.email;
             googleSubId = payload.sub || payload.email;
             name = name || payload.name;
+            picture = picture || payload.picture;
           }
         }
       } catch {
@@ -218,6 +222,7 @@ export class AuthService {
             email = profile.email;
             googleSubId = profile.sub || profile.email;
             name = name || profile.name;
+            picture = picture || profile.picture;
           }
         }
       } catch {
@@ -272,15 +277,15 @@ export class AuthService {
       await this.oauthCredentialRepo.save(oauthCred);
     }
 
-    // Emit event tạo user-profile nếu đây là tài khoản mới tạo qua Google
-    if (isNewUser) {
-      this.userClient.emit(USER_EVENTS.USER_REGISTERED, {
-        eventType: 'USER_REGISTERED',
-        userId: userAccount.id,
-        email: userAccount.email,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    // Emit event tạo/đồng bộ user-profile với thông tin tên & avatar từ Google
+    this.userClient.emit(USER_EVENTS.USER_REGISTERED, {
+      eventType: 'USER_REGISTERED',
+      userId: userAccount.id,
+      email: userAccount.email,
+      displayName: name || dto.displayName,
+      avatarUrl: picture,
+      timestamp: new Date().toISOString(),
+    });
 
     // Ghi lại AuthSession vào bảng auth_session
     await this.recordSession(userAccount.id);

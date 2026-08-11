@@ -17,6 +17,9 @@ import {
   ExceptionType,
 } from '@app/contracts/user';
 
+import { RewardType } from '../enums';
+import { UserProfileService } from '../user-profile/user-profile.service';
+
 const DAY_OF_WEEK_MAP = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 @Injectable()
@@ -26,6 +29,7 @@ export class UserScheduleService {
     private readonly recurringRepo: Repository<MentorRecurringSchedule>,
     @InjectRepository(MentorExceptionDate)
     private readonly exceptionRepo: Repository<MentorExceptionDate>,
+    private readonly userProfileService: UserProfileService,
   ) {}
 
   // ==================== LỊCH LẶP LẠI (RECURRING SCHEDULE) ====================
@@ -75,6 +79,14 @@ export class UserScheduleService {
     schedule.isActive = true;
 
     const saved = await this.recurringRepo.save(schedule);
+
+    // Tự động kiểm tra và trao 10 Credit thưởng tạo Lịch rảnh đầu tiên
+    try {
+      await this.userProfileService.checkAndRewardTask(mentorId, RewardType.PROFILE_SCHEDULE, 10);
+    } catch (err) {
+      console.error('[SCHEDULE] Error rewarding schedule task:', err);
+    }
+
     return this.mapRecurringToDto(saved);
   }
 

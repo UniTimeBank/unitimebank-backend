@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, Matches } from 'class-validator';
+import { IsEmail, IsString, MinLength, Matches, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class RegisterDto {
@@ -9,6 +9,15 @@ export class RegisterDto {
   @IsEmail({}, { message: 'Email không hợp lệ' })
   @Matches(/@gmail\.com$/i, { message: 'Email phải là địa chỉ Gmail (@gmail.com)' })
   email: string;
+
+  @ApiProperty({
+    example: 'Nguyễn Văn A',
+    description: 'Họ và tên hiển thị',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  displayName?: string;
 
   @ApiProperty({
     example: 'SecurePass123',

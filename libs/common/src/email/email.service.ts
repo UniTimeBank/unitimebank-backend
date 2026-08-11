@@ -71,7 +71,7 @@ export class EmailService {
       await this.transporter.sendMail({
         from: `"UniTime Bank" <${process.env.EMAIL_USER}>`,
         to: email,
-        subject: '🎉 Chào mừng bạn đến với UniTime Bank!',
+        subject: ' Chào mừng bạn đến với UniTime Bank!',
         html,
         attachments,
       });
