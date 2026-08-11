@@ -50,26 +50,30 @@ export class CreateMentorPostDto {
     example: 'Hướng dẫn Spring Boot Microservices từ cơ bản đến nâng cao',
     description: 'Tiêu đề bài đăng nhận dạy',
   })
-  @IsString()
-  @MinLength(5)
-  @MaxLength(200)
+  @IsString({ message: 'Tiêu đề bài dạy phải là chuỗi ký tự.' })
+  @IsNotEmpty({ message: 'Vui lòng nhập tiêu đề bài dạy.' })
+  @MinLength(5, { message: 'Tiêu đề bài dạy phải có ít nhất 5 ký tự.' })
+  @MaxLength(200, { message: 'Tiêu đề bài dạy không được vượt quá 200 ký tự.' })
   title: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: 'Khóa học hướng dẫn sinh viên xây dựng hệ thống kiến trúc Microservices thực chiến với Spring Boot, Docker và Kafka.',
     description: 'Mô tả chi tiết nội dung và lộ trình giảng dạy',
   })
-  @IsString()
-  @IsOptional()
-  description?: string;
+  @IsString({ message: 'Mô tả chi tiết phải là chuỗi ký tự.' })
+  @IsNotEmpty({ message: 'Vui lòng nhập mô tả chi tiết lộ trình học.' })
+  @MinLength(10, { message: 'Mô tả chi tiết phải có ít nhất 10 ký tự.' })
+  description: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: 'Hướng dẫn xây dựng Microservices thực chiến với Spring Boot & Docker.',
     description: 'Mô tả tóm tắt hiển thị trên thẻ card',
   })
-  @IsString()
-  @IsOptional()
-  shortDescription?: string;
+  @IsString({ message: 'Mô tả tóm tắt phải là chuỗi ký tự.' })
+  @IsNotEmpty({ message: 'Vui lòng nhập mô tả tóm tắt.' })
+  @MinLength(5, { message: 'Mô tả tóm tắt phải có ít nhất 5 ký tự.' })
+  @MaxLength(150, { message: 'Mô tả tóm tắt không được vượt quá 150 ký tự.' })
+  shortDescription: string;
 
   @ApiPropertyOptional({
     enum: SessionType,
