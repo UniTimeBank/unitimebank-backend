@@ -31,6 +31,27 @@ export class UserCheckinService {
   ) {}
 
   /**
+   * Tính số Credit phần thưởng dựa trên ngày trong chu kỳ 7 ngày (15, 5, 5, 5, 5, 5, 20)
+   */
+  private getRewardForStreakDay(streakDay: number): number {
+    const cycleDay = ((streakDay - 1) % 7) + 1;
+    switch (cycleDay) {
+      case 1:
+        return 15;
+      case 2:
+      case 3:
+      case 4:
+      case 5:
+      case 6:
+        return 5;
+      case 7:
+        return 20;
+      default:
+        return 5;
+    }
+  }
+
+  /**
    * Thực hiện điểm danh hàng ngày
    */
   async checkIn(userId: string): Promise<CheckInResponseDto> {
@@ -39,7 +60,7 @@ export class UserCheckinService {
       throw new NotFoundException('Không tìm thấy hồ sơ người dùng');
     }
 
-    const todayStr = this.formatDate(new Date());
+    const todayStr = this.getTodayString();
 
     // Lấy bản ghi điểm danh mới nhất của user
     const lastStreak = await this.loginStreakRepo.findOne({
@@ -48,7 +69,7 @@ export class UserCheckinService {
     });
 
     if (lastStreak) {
-      const lastDateStr = this.formatDate(new Date(lastStreak.loginDate));
+      const lastDateStr = this.formatDate(lastStreak.loginDate);
       if (lastDateStr === todayStr) {
         throw new ConflictException('Bạn đã điểm danh ngày hôm nay rồi!');
       }
@@ -57,9 +78,10 @@ export class UserCheckinService {
     // Tính chuỗi streak liên tục
     let newStreak = 1;
     if (lastStreak) {
+      const lastDateStr = this.formatDate(lastStreak.loginDate);
       const diffDays = this.getDiffDays(
         new Date(todayStr),
-        new Date(this.formatDate(new Date(lastStreak.loginDate))),
+        new Date(lastDateStr),
       );
 
       if (diffDays === 1) {
@@ -71,13 +93,8 @@ export class UserCheckinService {
       }
     }
 
-    // Tính phần thưởng credit
-    let rewardCredits = 1; // Thưởng cơ bản 1 credit
-    if (newStreak % 30 === 0) {
-      rewardCredits += 20; // Thưởng mốc 30 ngày
-    } else if (newStreak % 7 === 0) {
-      rewardCredits += 5; // Thưởng mốc 7 ngày
-    }
+    // Tính phần thưởng credit theo chu kỳ 7 ngày (15, 5, 5, 5, 5, 5, 20)
+    const rewardCredits = this.getRewardForStreakDay(newStreak);
 
     const newRecord = this.loginStreakRepo.create({
       userId,
@@ -120,7 +137,7 @@ export class UserCheckinService {
    * Lấy trạng thái điểm danh và chuỗi streak hiện tại
    */
   async getCheckInStatus(userId: string): Promise<GetCheckInStatusResponseDto> {
-    const todayStr = this.formatDate(new Date());
+    const todayStr = this.getTodayString();
 
     const streaks = await this.loginStreakRepo.find({
       where: { userId },
@@ -138,7 +155,7 @@ export class UserCheckinService {
     }
 
     const latest = streaks[0];
-    const latestDateStr = this.formatDate(new Date(latest.loginDate));
+    const latestDateStr = this.formatDate(latest.loginDate);
     const isCheckedInToday = latestDateStr === todayStr;
 
     // Kiểm tra xem streak có bị đứt không
@@ -151,7 +168,7 @@ export class UserCheckinService {
     }
 
     const history: CheckInHistoryItemDto[] = streaks.map((item) => ({
-      date: this.formatDate(new Date(item.loginDate)),
+      date: this.formatDate(item.loginDate),
       streakDay: item.streakDay,
       rewardGranted: item.rewardGranted,
     }));
@@ -164,11 +181,26 @@ export class UserCheckinService {
     };
   }
 
-  /** Format Date thành dạng YYYY-MM-DD */
-  private formatDate(d: Date): string {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
+  /** Lấy ngày hôm nay dưới dạng YYYY-MM-DD theo giờ địa phương */
+  private getTodayString(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  /** Format Date hoặc Date string thành dạng YYYY-MM-DD an toàn tuyệt đối */
+  private formatDate(d: Date | string): string {
+    if (!d) return '';
+    if (typeof d === 'string') {
+      const match = d.match(/^\d{4}-\d{2}-\d{2}/);
+      if (match) return match[0];
+    }
+    const dateObj = new Date(d);
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
 

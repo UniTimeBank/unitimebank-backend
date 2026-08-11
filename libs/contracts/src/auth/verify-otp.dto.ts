@@ -1,4 +1,4 @@
-import { IsEmail, IsString, IsEnum, Length } from 'class-validator';
+import { IsEmail, IsString, IsEnum, Length, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export enum OtpPurpose {
@@ -19,4 +19,9 @@ export class VerifyOtpDto {
   @ApiProperty({ example: 'REGISTER', enum: OtpPurpose, description: 'Loại OTP' })
   @IsEnum(OtpPurpose, { message: 'Loại OTP không hợp lệ' })
   purpose: OtpPurpose;
+
+  @ApiProperty({ example: 'Nguyễn Văn A', description: 'Họ và tên hiển thị', required: false })
+  @IsOptional()
+  @IsString()
+  displayName?: string;
 }

@@ -9,8 +9,8 @@ export class UserEventHandler {
   }
 
   @EventPattern(USER_EVENTS.USER_REGISTERED)
-  async handleUserRegistered(@Payload() data: { userId: string; email?: string }) {
-    console.log(`[USER EVENT] Received USER_REGISTERED event for userId: ${data?.userId}`);
+  async handleUserRegistered(@Payload() data: { userId: string; email?: string; displayName?: string; avatarUrl?: string }) {
+    console.log(`[USER EVENT] Received USER_REGISTERED event for userId: ${data?.userId}, displayName: ${data?.displayName}`);
 
     if (!data?.userId) {
       console.error('[USER EVENT] Missing userId in event payload');
@@ -18,7 +18,10 @@ export class UserEventHandler {
     }
 
     try {
-      await this.userProfileService.createProfile(data.userId);
+      await this.userProfileService.createProfile(data.userId, {
+        displayName: data.displayName,
+        avatarUrl: data.avatarUrl,
+      });
       console.log(`[USER EVENT] User profile successfully created for userId: ${data.userId}`);
     } catch (error) {
       console.error(`[USER EVENT] Error creating user profile:`, error);

@@ -8,6 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserSkill } from '../entities/user-skill.entity';
 import { UserProfile } from '../entities/user-profile.entity';
+import { RewardType } from '../enums';
+import { UserProfileService } from '../user-profile/user-profile.service';
 import {
   CreateSkillDto,
   UpdateSkillDto,
@@ -22,6 +24,7 @@ export class UserSkillService {
     private readonly userSkillRepo: Repository<UserSkill>,
     @InjectRepository(UserProfile)
     private readonly userProfileRepo: Repository<UserProfile>,
+    private readonly userProfileService: UserProfileService,
   ) {}
 
   /**
@@ -58,7 +61,7 @@ export class UserSkillService {
   }
 
   /**
-   * Thêm kỹ năng mới (tự động khởi tạo profile nếu tài khoản mới chưa có record trong bảng user_profile)
+   * Thêm kỹ năng mới (tự động thưởng 10 credit nếu là kỹ năng đầu tiên)
    */
   async createSkill(userId: string, dto: CreateSkillDto): Promise<SkillDto> {
     // Đảm bảo profile tồn tại
@@ -95,11 +98,18 @@ export class UserSkillService {
 
     const saved = await this.userSkillRepo.save(skill);
 
+    // Tự động kiểm tra và trao 10 Credit thưởng tạo Kỹ năng đầu tiên
+    try {
+      await this.userProfileService.checkAndRewardTask(userId, RewardType.PROFILE_SKILL, 10);
+    } catch (err) {
+      console.error('[SKILL] Error rewarding skill task:', err);
+    }
+
     return this.toSkillDto(saved);
   }
 
   /**
-   * Cập nhật thông tin kỹ năng (tên, danh mục, hoặc trạng thái kỹ năng thế mạnh)
+   * Cập nhật thông tin kỹ năng
    */
   async updateSkill(
     userId: string,
@@ -117,14 +127,13 @@ export class UserSkillService {
     if (dto.skillName !== undefined) {
       const trimmedName = dto.skillName.trim();
       const allUserSkills = await this.userSkillRepo.find({ where: { userId } });
-      const duplicate = allUserSkills.find(
+      const isDuplicate = allUserSkills.some(
         (s) => s.id !== skillId && s.skillName.trim().toLowerCase() === trimmedName.toLowerCase(),
       );
 
-      if (duplicate) {
+      if (isDuplicate) {
         throw new ConflictException(`Kỹ năng "${trimmedName}" đã tồn tại trong hồ sơ của bạn.`);
       }
-
       skill.skillName = trimmedName;
     }
 
@@ -136,12 +145,12 @@ export class UserSkillService {
       skill.isStrong = dto.isStrong;
     }
 
-    const saved = await this.userSkillRepo.save(skill);
-    return this.toSkillDto(saved);
+    const updated = await this.userSkillRepo.save(skill);
+    return this.toSkillDto(updated);
   }
 
   /**
-   * Xoá kỹ năng
+   * Xóa kỹ năng
    */
   async deleteSkill(userId: string, skillId: string): Promise<void> {
     const skill = await this.userSkillRepo.findOne({
@@ -149,22 +158,19 @@ export class UserSkillService {
     });
 
     if (!skill) {
-      throw new NotFoundException('Không tìm thấy kỹ năng để xoá');
+      throw new NotFoundException('Không tìm thấy kỹ năng');
     }
 
     await this.userSkillRepo.remove(skill);
   }
 
-  /**
-   * Chuyển Entity sang DTO
-   */
-  private toSkillDto(entity: UserSkill): SkillDto {
+  private toSkillDto(skill: UserSkill): SkillDto {
     return {
-      id: entity.id,
-      skillName: entity.skillName,
-      category: entity.category,
-      isStrong: entity.isStrong,
-      addedAt: entity.addedAt,
+      id: skill.id,
+      skillName: skill.skillName,
+      category: skill.category,
+      isStrong: skill.isStrong,
+      addedAt: skill.addedAt,
     };
   }
 }

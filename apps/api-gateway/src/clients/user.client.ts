@@ -49,6 +49,10 @@ export class UserClient {
     return this.request('GET', '/users/me', undefined, headers);
   }
 
+  async getOnboardingTasks(headers: Record<string, string>) {
+    return this.request('GET', '/users/me/tasks', undefined, headers);
+  }
+
   async updateProfile(data: any, headers: Record<string, string>) {
     return this.request('PATCH', '/users/me', data, headers);
   }

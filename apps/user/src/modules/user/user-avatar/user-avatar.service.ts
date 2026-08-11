@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { UserProfile } from '../entities/user-profile.entity';
 import { CloudinaryService } from '@app/common/cloudinary';
 import { UploadAvatarResponseDto } from '@app/contracts/user';
+import { UserProfileService } from '../user-profile/user-profile.service';
 
 @Injectable()
 export class UserAvatarService {
@@ -23,6 +24,7 @@ export class UserAvatarService {
     @InjectRepository(UserProfile)
     private readonly userProfileRepo: Repository<UserProfile>,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly userProfileService: UserProfileService,
   ) {}
 
   /**
@@ -69,6 +71,13 @@ export class UserAvatarService {
     // Cập nhật avatarUrl trong profile
     profile.avatarUrl = result.url;
     await this.userProfileRepo.save(profile);
+
+    // Tự động kiểm tra và trao 10 Credit thưởng nếu đủ Avatar + Bio
+    try {
+      await this.userProfileService.checkAndRewardProfileComplete(userId);
+    } catch (err) {
+      console.error('[AVATAR] Error rewarding profile complete task:', err);
+    }
 
     return {
       avatarUrl: result.url,
