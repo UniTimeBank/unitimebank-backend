@@ -1,27 +1,77 @@
-import { Injectable } from '@nestjs/common';
-import { ClientProxy, ClientProxyFactory, Transport } from '@nestjs/microservices';
-import { firstValueFrom, timeout } from 'rxjs';
+import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 
 @Injectable()
 export class BookingClient {
-  private client: ClientProxy;
+  private readonly BOOKING_SERVICE_URL = process.env.BOOKING_SERVICE_URL || 'http://localhost:3004';
 
-  constructor() {
-    this.client = ClientProxyFactory.create({
-      transport: Transport.RMQ,
-      options: {
-        urls: [process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672'],
-        queue: 'booking_queue',
-        queueOptions: { durable: false },
-      },
-    });
+  private async request(method: string, path: string, data?: any, headers?: Record<string, string>) {
+    const url = `${this.BOOKING_SERVICE_URL}${path}`;
+
+    const requestHeaders: Record<string, string> = { ...headers };
+    if (data) {
+      requestHeaders['Content-Type'] = 'application/json';
+    }
+
+    const options: RequestInit = {
+      method,
+      headers: requestHeaders,
+    };
+
+    if (data) {
+      options.body = JSON.stringify(data);
+    }
+
+    try {
+      const response = await fetch(url, options);
+      const result = await response.json();
+      if (!response.ok) {
+        throw new HttpException(
+          result.message || result.error || 'Lỗi xử lý hệ thống đặt lịch',
+          response.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+      return result;
+    } catch (err) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      throw new HttpException(
+        'Không thể kết nối đến Dịch vụ Đặt lịch (Booking Service)',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
   }
 
-  send<T>(pattern: string, data: any): Promise<T> {
-    return firstValueFrom(this.client.send<T>(pattern, data).pipe(timeout(10000)));
+  async createBooking(data: any, headers: Record<string, string>) {
+    return this.request('POST', '/bookings', data, headers);
   }
 
-  emit<T>(pattern: string, data: any) {
-    return this.client.emit(pattern, data);
+  async applyLearnerRequest(data: any, headers: Record<string, string>) {
+    return this.request('POST', '/bookings/apply-learner-request', data, headers);
+  }
+
+  async acceptBooking(bookingId: string, headers: Record<string, string>) {
+    return this.request('POST', `/bookings/${bookingId}/accept`, undefined, headers);
+  }
+
+  async rejectBooking(bookingId: string, data: any, headers: Record<string, string>) {
+    return this.request('POST', `/bookings/${bookingId}/reject`, data, headers);
+  }
+
+  async cancelBooking(bookingId: string, data: any, headers: Record<string, string>) {
+    return this.request('POST', `/bookings/${bookingId}/cancel`, data, headers);
+  }
+
+  async markNoShow(bookingId: string, headers: Record<string, string>) {
+    return this.request('POST', `/bookings/${bookingId}/no-show`, undefined, headers);
+  }
+
+  async getMyBookings(queryString: string, headers: Record<string, string>) {
+    const path = queryString ? `/bookings?${queryString}` : '/bookings';
+    return this.request('GET', path, undefined, headers);
+  }
+
+  async getBookingById(bookingId: string, headers: Record<string, string>) {
+    return this.request('GET', `/bookings/${bookingId}`, undefined, headers);
   }
 }
