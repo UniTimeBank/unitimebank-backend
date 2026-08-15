@@ -7,14 +7,14 @@ export class CreateRecurringScheduleDto {
   @IsEnum(DayOfWeek)
   dayOfWeek: DayOfWeek;
 
-  @ApiProperty({ example: '19:00', description: 'Giờ bắt đầu dạng HH:mm' })
+  @ApiProperty({ example: '19:00', description: 'Giờ bắt đầu dạng HH:mm (bước nhảy 15 phút: :00, :15, :30, :45)' })
   @IsString()
-  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, { message: 'startTime phải theo định dạng HH:mm' })
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, { message: 'startTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)' })
   startTime: string;
 
-  @ApiProperty({ example: '21:00', description: 'Giờ kết thúc dạng HH:mm' })
+  @ApiProperty({ example: '21:00', description: 'Giờ kết thúc dạng HH:mm (bước nhảy 15 phút: :00, :15, :30, :45)' })
   @IsString()
-  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, { message: 'endTime phải theo định dạng HH:mm' })
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, { message: 'endTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)' })
   endTime: string;
 }
 
@@ -22,13 +22,13 @@ export class UpdateRecurringScheduleDto {
   @ApiPropertyOptional({ example: '18:00' })
   @IsOptional()
   @IsString()
-  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, { message: 'startTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)' })
   startTime?: string;
 
   @ApiPropertyOptional({ example: '20:00' })
   @IsOptional()
   @IsString()
-  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, { message: 'endTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)' })
   endTime?: string;
 
   @ApiPropertyOptional({ example: true })

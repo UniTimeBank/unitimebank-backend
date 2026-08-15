@@ -52,7 +52,7 @@ export class UserCheckinService {
   }
 
   /**
-   * Thực hiện điểm danh hàng ngày
+   * Thực hiện điểm danh hàng ngày (Tối đa 7 ngày duy nhất trong Onboarding)
    */
   async checkIn(userId: string): Promise<CheckInResponseDto> {
     const profile = await this.userProfileRepo.findOne({ where: { userId } });
@@ -62,6 +62,12 @@ export class UserCheckinService {
 
     const todayStr = this.getTodayString();
 
+    // Lấy tất cả bản ghi điểm danh để kiểm tra giới hạn 7 ngày
+    const countStreaks = await this.loginStreakRepo.count({ where: { userId } });
+    if (countStreaks >= 7) {
+      throw new ConflictException('Bạn đã hoàn thành trọn vẹn chuỗi 7 ngày điểm danh nhận thưởng.');
+    }
+
     // Lấy bản ghi điểm danh mới nhất của user
     const lastStreak = await this.loginStreakRepo.findOne({
       where: { userId },
@@ -69,9 +75,13 @@ export class UserCheckinService {
     });
 
     if (lastStreak) {
+      if (lastStreak.streakDay >= 7) {
+        throw new ConflictException('Bạn đã hoàn thành trọn vẹn chuỗi 7 ngày điểm danh nhận thưởng.');
+      }
+
       const lastDateStr = this.formatDate(lastStreak.loginDate);
       if (lastDateStr === todayStr) {
-        throw new ConflictException('Bạn đã điểm danh ngày hôm nay rồi!');
+        throw new ConflictException('Bạn đã điểm danh hôm nay rồi.');
       }
     }
 
@@ -91,6 +101,11 @@ export class UserCheckinService {
         // Bị đứt chuỗi (quên điểm danh quá 1 ngày) -> Reset về 1
         newStreak = 1;
       }
+    }
+
+    // Đảm bảo không vượt quá 7
+    if (newStreak > 7) {
+      newStreak = 7;
     }
 
     // Tính phần thưởng credit theo chu kỳ 7 ngày (15, 5, 5, 5, 5, 5, 20)
@@ -125,7 +140,7 @@ export class UserCheckinService {
     }
 
     return {
-      message: 'Điểm danh thành công!',
+      message: newStreak === 7 ? 'Chúc mừng bạn đã hoàn thành trọn vẹn 7 ngày điểm danh nhận 60 Credit!' : 'Điểm danh thành công!',
       currentStreak: newStreak,
       rewardCredits,
       isCheckedInToday: true,
@@ -134,7 +149,7 @@ export class UserCheckinService {
   }
 
   /**
-   * Lấy trạng thái điểm danh và chuỗi streak hiện tại
+   * Lấy trạng thái điểm danh và chuỗi streak hiện tại (Khóa vĩnh viễn ở ngày 7 khi đã hoàn thành)
    */
   async getCheckInStatus(userId: string): Promise<GetCheckInStatusResponseDto> {
     const todayStr = this.getTodayString();
@@ -157,6 +172,22 @@ export class UserCheckinService {
     const latest = streaks[0];
     const latestDateStr = this.formatDate(latest.loginDate);
     const isCheckedInToday = latestDateStr === todayStr;
+
+    // Nếu đã hoàn thành đủ 7 ngày -> Khóa vĩnh viễn ở trạng thái hoàn thành full 7 ngày
+    if (latest.streakDay >= 7 || streaks.length >= 7) {
+      const history: CheckInHistoryItemDto[] = streaks.map((item) => ({
+        date: this.formatDate(item.loginDate),
+        streakDay: item.streakDay,
+        rewardGranted: item.rewardGranted,
+      }));
+
+      return {
+        currentStreak: 7,
+        isCheckedInToday: true,
+        lastCheckInDate: latestDateStr,
+        history,
+      };
+    }
 
     // Kiểm tra xem streak có bị đứt không
     let currentStreak = latest.streakDay;

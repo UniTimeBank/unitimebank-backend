@@ -12,14 +12,14 @@ export class CreateScheduleExceptionDto {
   @IsEnum(ExceptionType)
   type: ExceptionType;
 
-  @ApiProperty({ example: '14:00' })
+  @ApiProperty({ example: '14:00', description: 'Giờ bắt đầu (bước nhảy 15 phút: :00, :15, :30, :45)' })
   @IsString()
-  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, { message: 'startTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)' })
   startTime: string;
 
-  @ApiProperty({ example: '16:00' })
+  @ApiProperty({ example: '16:00', description: 'Giờ kết thúc (bước nhảy 15 phút: :00, :15, :30, :45)' })
   @IsString()
-  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, { message: 'endTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)' })
   endTime: string;
 
   @ApiPropertyOptional({ example: 'Buổi học bổ sung' })

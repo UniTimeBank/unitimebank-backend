@@ -10,6 +10,7 @@ import {
   Min,
   MinLength,
   MaxLength,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SessionType, SkillCategoryName } from '../enums';
@@ -20,14 +21,20 @@ export class DesiredSlotDto {
   @IsNotEmpty()
   dayOfWeek: string;
 
-  @ApiProperty({ example: '20:00', description: 'Giờ bắt đầu' })
+  @ApiProperty({ example: '20:00', description: 'Giờ bắt đầu dạng HH:mm (bước nhảy 15 phút: :00, :15, :30, :45)' })
   @IsString()
   @IsNotEmpty()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, {
+    message: 'startTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)',
+  })
   startTime: string;
 
-  @ApiProperty({ example: '21:00', description: 'Giờ kết thúc' })
+  @ApiProperty({ example: '21:00', description: 'Giờ kết thúc dạng HH:mm (bước nhảy 15 phút: :00, :15, :30, :45)' })
   @IsString()
   @IsNotEmpty()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, {
+    message: 'endTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)',
+  })
   endTime: string;
 }
 
@@ -77,10 +84,10 @@ export class CreateLearnerRequestDto {
 
   @ApiProperty({
     example: 60,
-    description: 'Thời lượng buổi học mong muốn (tính bằng phút, ví dụ: 30, 45, 60, 90)',
+    description: 'Thời lượng buổi học mong muốn (tính bằng phút, bội số của 15: 30, 45, 60, 75, 90, 120...)',
   })
   @IsNumber()
-  @Min(5)
+  @Min(30, { message: 'Thời lượng buổi học tối thiểu là 30 phút' })
   @Type(() => Number)
   expectedDurationMinutes: number;
 

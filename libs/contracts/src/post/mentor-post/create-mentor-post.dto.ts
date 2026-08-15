@@ -8,6 +8,7 @@ import {
   IsNotEmpty,
   MinLength,
   MaxLength,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SessionType, SkillCategoryName, PostScheduleType } from '../enums';
@@ -34,14 +35,20 @@ export class TimeSlotDto {
   @IsNotEmpty()
   dayOfWeek: string;
 
-  @ApiProperty({ example: '19:00', description: 'Thời gian bắt đầu (HH:mm)' })
+  @ApiProperty({ example: '19:00', description: 'Thời gian bắt đầu (HH:mm, bước nhảy 15 phút: :00, :15, :30, :45)' })
   @IsString()
   @IsNotEmpty()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, {
+    message: 'startTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)',
+  })
   startTime: string;
 
-  @ApiProperty({ example: '21:00', description: 'Thời gian kết thúc (HH:mm)' })
+  @ApiProperty({ example: '21:00', description: 'Thời gian kết thúc (HH:mm, bước nhảy 15 phút: :00, :15, :30, :45)' })
   @IsString()
   @IsNotEmpty()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):(00|15|30|45)$/, {
+    message: 'endTime phải theo định dạng HH:mm với bước nhảy 15 phút (:00, :15, :30, :45)',
+  })
   endTime: string;
 }
 
