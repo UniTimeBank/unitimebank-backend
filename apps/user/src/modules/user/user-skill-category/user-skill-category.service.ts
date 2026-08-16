@@ -24,11 +24,12 @@ export class UserSkillCategoryService implements OnModuleInit {
       { name: SkillCategoryName.PROGRAMMING, displayOrder: 1 },
       { name: SkillCategoryName.LANGUAGE, displayOrder: 2 },
       { name: SkillCategoryName.DESIGN, displayOrder: 3 },
-      { name: SkillCategoryName.SOFT_SKILLS, displayOrder: 4 },
-      { name: SkillCategoryName.MUSIC, displayOrder: 5 },
-      { name: SkillCategoryName.SPORTS, displayOrder: 6 },
-      { name: SkillCategoryName.BUSINESS, displayOrder: 7 },
-      { name: SkillCategoryName.OTHER, displayOrder: 8 },
+      { name: SkillCategoryName.ACADEMIC, displayOrder: 4 },
+      { name: SkillCategoryName.BUSINESS, displayOrder: 5 },
+      { name: SkillCategoryName.SOFT_SKILLS, displayOrder: 6 },
+      { name: SkillCategoryName.MUSIC, displayOrder: 7 },
+      { name: SkillCategoryName.SPORTS, displayOrder: 8 },
+      { name: SkillCategoryName.OTHER, displayOrder: 9 },
     ];
 
     for (const cat of defaultCategories) {
