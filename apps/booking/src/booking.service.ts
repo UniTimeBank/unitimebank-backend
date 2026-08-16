@@ -33,6 +33,26 @@ export class BookingService {
   ) {}
 
   /**
+   * Helper: Lấy thông tin họ tên & Avatar thực của user từ User Service
+   */
+  private async getUserSnapshot(userId: string): Promise<{ name: string; avatar: string }> {
+    try {
+      const userUrl = process.env.USER_SERVICE_URL || 'http://localhost:3002';
+      const res = await fetch(`${userUrl}/users/${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          name: data.displayName || data.fullName || 'Thành viên',
+          avatar: data.avatarUrl || '',
+        };
+      }
+    } catch (err) {
+      this.logger.warn(`Could not fetch user snapshot for ${userId}: ${err}`);
+    }
+    return { name: 'Thành viên', avatar: '' };
+  }
+
+  /**
    * Learner gửi yêu cầu Đặt lịch trên bài đăng của Mentor
    */
   async requestMentorPost(
@@ -59,6 +79,12 @@ export class BookingService {
       throw new BadRequestException('Bạn không thể tự đặt lịch học với chính mình');
     }
 
+    // Lấy thông tin profile học viên
+    const learnerSnap =
+      learnerSnapshot?.name && learnerSnapshot.name !== 'Học viên'
+        ? learnerSnapshot
+        : await this.getUserSnapshot(learnerId);
+
     // 2. Tạo bản ghi Booking ở trạng thái CHỜ MENTOR DUYỆT
     const startMs = new Date(dto.scheduledStart).getTime();
     const endMs = new Date(dto.scheduledEnd).getTime();
@@ -72,8 +98,8 @@ export class BookingService {
       mentorName: mentorPost.mentorName || 'Mentor',
       mentorAvatar: mentorPost.mentorAvatar || '',
       learnerId: learnerId,
-      learnerName: learnerSnapshot?.name || 'Học viên',
-      learnerAvatar: learnerSnapshot?.avatar || '',
+      learnerName: learnerSnap.name || 'Học viên',
+      learnerAvatar: learnerSnap.avatar || '',
       title: mentorPost.title || 'Buổi học 1:1',
       note: dto.note || dto.message || '',
       scheduledStart: new Date(dto.scheduledStart),
@@ -90,7 +116,7 @@ export class BookingService {
       this.notificationClient.emit('notification.create', {
         userId: mentorPost.mentorId,
         title: 'Yêu cầu đặt lịch mới',
-        content: `${learnerSnapshot?.name || 'Một học viên'} đã gửi yêu cầu học bài "${mentorPost.title}".`,
+        content: `${learnerSnap.name || 'Một học viên'} đã gửi yêu cầu học bài "${mentorPost.title}".`,
         type: 'BOOKING_REQUEST',
         referenceId: saved.id,
       });
@@ -128,6 +154,12 @@ export class BookingService {
       throw new BadRequestException('Bạn không thể tự gửi đề nghị dạy cho bài yêu cầu của chính mình');
     }
 
+    // Lấy thông tin profile người dạy
+    const mentorSnap =
+      mentorSnapshot?.name && mentorSnapshot.name !== 'Mentor'
+        ? mentorSnapshot
+        : await this.getUserSnapshot(mentorId);
+
     // 2. Tạo bản ghi Booking ở trạng thái CHỜ LEARNER DUYỆT
     const startMs = new Date(dto.scheduledStart).getTime();
     const endMs = new Date(dto.scheduledEnd).getTime();
@@ -138,8 +170,8 @@ export class BookingService {
       origin: BookingOrigin.LEARNER_REQUEST,
       sourcePostId: dto.learnerRequestId,
       mentorId: mentorId,
-      mentorName: mentorSnapshot?.name || 'Mentor',
-      mentorAvatar: mentorSnapshot?.avatar || '',
+      mentorName: mentorSnap.name || 'Mentor',
+      mentorAvatar: mentorSnap.avatar || '',
       learnerId: learnerReq.learnerId,
       learnerName: learnerReq.learnerName || 'Học viên',
       learnerAvatar: learnerReq.learnerAvatar || '',
@@ -159,7 +191,7 @@ export class BookingService {
       this.notificationClient.emit('notification.create', {
         userId: learnerReq.learnerId,
         title: 'Đề nghị dạy mới từ Mentor',
-        content: `Mentor ${mentorSnapshot?.name || ''} đã đề nghị dạy bài yêu cầu "${learnerReq.skillNeeded}" của bạn.`,
+        content: `Mentor ${mentorSnap.name || ''} đã đề nghị dạy bài yêu cầu "${learnerReq.skillNeeded}" của bạn.`,
         type: 'BOOKING_OFFER',
         referenceId: saved.id,
       });
@@ -261,7 +293,41 @@ export class BookingService {
     qb.orderBy('booking.createdAt', 'DESC');
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total };
+
+    // Enrich real profile names & avatars for existing records
+    const enrichedItems = await Promise.all(
+      items.map(async (b) => {
+        let modified = false;
+        if (!b.learnerAvatar || b.learnerName === 'Học viên') {
+          const snap = await this.getUserSnapshot(b.learnerId);
+          if (snap.name && snap.name !== 'Thành viên') {
+            b.learnerName = snap.name;
+            modified = true;
+          }
+          if (snap.avatar) {
+            b.learnerAvatar = snap.avatar;
+            modified = true;
+          }
+        }
+        if (!b.mentorAvatar || b.mentorName === 'Mentor') {
+          const snap = await this.getUserSnapshot(b.mentorId);
+          if (snap.name && snap.name !== 'Thành viên') {
+            b.mentorName = snap.name;
+            modified = true;
+          }
+          if (snap.avatar) {
+            b.mentorAvatar = snap.avatar;
+            modified = true;
+          }
+        }
+        if (modified) {
+          this.bookingRepo.save(b).catch(() => {});
+        }
+        return b;
+      }),
+    );
+
+    return { items: enrichedItems, total };
   }
 
   /**
