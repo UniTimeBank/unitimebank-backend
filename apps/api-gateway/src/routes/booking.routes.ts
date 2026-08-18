@@ -74,6 +74,15 @@ export class BookingRoutes {
     return this.bookingClient.acceptBooking(id, this.getAuthHeaders(req));
   }
 
+  /** POST /bookings/:bookingId/complete — Hoàn thành buổi học & Giải phóng Credit ký quỹ */
+  @Post(':id/complete')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Hoàn thành buổi học (Chuyển Credit ký quỹ sang số dư khả dụng của Mentor)' })
+  @ApiResponse({ status: 200, description: 'Hoàn thành buổi học và giải phóng Credit thành công', type: BookingResponseDto })
+  async completeBooking(@Param('id') id: string, @Req() req: any) {
+    return this.bookingClient.completeBooking(id, this.getAuthHeaders(req));
+  }
+
   /** POST /bookings/:bookingId/reject — Từ chối booking */
   @Post(':id/reject')
   @ApiBearerAuth()

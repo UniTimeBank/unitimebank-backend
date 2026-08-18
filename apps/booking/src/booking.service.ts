@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 import { Booking } from './modules/booking/entities/booking.entity';
@@ -79,6 +79,26 @@ export class BookingService {
       throw new BadRequestException('Bạn không thể tự đặt lịch học với chính mình');
     }
 
+    // Kiểm tra chống spam: Không cho phép đặt lịch nhiều lần cho cùng 1 bài đăng nếu đã có yêu cầu đang xử lý / đã xác nhận
+    const existingActiveBooking = await this.bookingRepo.findOne({
+      where: {
+        sourcePostId: dto.mentorPostId,
+        learnerId: learnerId,
+        status: In([
+          BookingStatus.PENDING_MENTOR_APPROVAL,
+          BookingStatus.CONFIRMED,
+          BookingStatus.STARTED,
+        ]),
+      },
+    });
+
+    if (existingActiveBooking) {
+      if (existingActiveBooking.status === BookingStatus.PENDING_MENTOR_APPROVAL) {
+        throw new BadRequestException('Bạn đã gửi yêu cầu đặt lịch cho bài đăng này và đang chờ gia sư phản hồi');
+      }
+      throw new BadRequestException('Bạn đã có lịch học đang hoạt động cho bài đăng này');
+    }
+
     // Lấy thông tin profile học viên
     const learnerSnap =
       learnerSnapshot?.name && learnerSnapshot.name !== 'Học viên'
@@ -111,7 +131,29 @@ export class BookingService {
 
     const saved = await this.bookingRepo.save(booking);
 
-    // 3. Gửi thông báo cho Mentor
+    // 3. Ký quỹ ngay lập tức số Credit của Học viên vào Escrow
+    try {
+      await firstValueFrom(
+        this.walletClient
+          .send('booking.accepted', {
+            bookingId: saved.id,
+            learnerId: learnerId,
+            amount: saved.totalCreditEscrowed,
+          })
+          .pipe(timeout(7000)),
+      );
+    } catch (err: any) {
+      this.logger.error(`Immediate escrow hold failed for booking ${saved.id}:`, err);
+      // Xóa bản ghi booking vừa tạo nếu không đủ credit để ký quỹ
+      await this.bookingRepo.delete(saved.id);
+      const msg =
+        err?.message ||
+        err?.data?.message ||
+        `Số dư khả dụng không đủ để ký quỹ booking (Cần ${duration} Credit).`;
+      throw new BadRequestException(msg);
+    }
+
+    // 4. Gửi thông báo cho Mentor
     try {
       this.notificationClient.emit('notification.create', {
         userId: mentorPost.mentorId,
@@ -152,6 +194,26 @@ export class BookingService {
 
     if (learnerReq.learnerId === mentorId) {
       throw new BadRequestException('Bạn không thể tự gửi đề nghị dạy cho bài yêu cầu của chính mình');
+    }
+
+    // Kiểm tra chống spam: Không cho phép gửi đề nghị dạy nhiều lần cho cùng 1 bài yêu cầu nếu đang chờ phản hồi hoặc đã xác nhận
+    const existingActiveOffer = await this.bookingRepo.findOne({
+      where: {
+        sourcePostId: dto.learnerRequestId,
+        mentorId: mentorId,
+        status: In([
+          BookingStatus.PENDING_LEARNER_APPROVAL,
+          BookingStatus.CONFIRMED,
+          BookingStatus.STARTED,
+        ]),
+      },
+    });
+
+    if (existingActiveOffer) {
+      if (existingActiveOffer.status === BookingStatus.PENDING_LEARNER_APPROVAL) {
+        throw new BadRequestException('Bạn đã gửi đề nghị dạy cho bài yêu cầu này và đang chờ học viên phản hồi');
+      }
+      throw new BadRequestException('Bạn đã có lịch học đang hoạt động cho bài yêu cầu này');
     }
 
     // Lấy thông tin profile người dạy
@@ -226,6 +288,24 @@ export class BookingService {
 
     // Trường hợp TỪ CHỐI
     if (dto.action === 'REJECT') {
+      // Nếu là booking từ Mentor Post (Học viên đã ký quỹ lúc tạo) -> Hoàn trả credit cho Học viên
+      if (booking.origin === BookingOrigin.MENTOR_POST && booking.totalCreditEscrowed > 0) {
+        try {
+          await firstValueFrom(
+            this.walletClient
+              .send('wallet.refundEscrow', {
+                bookingId: booking.id,
+                learnerId: booking.learnerId,
+                amount: booking.totalCreditEscrowed,
+                reason: dto.reason || 'Gia sư từ chối yêu cầu đặt lịch',
+              })
+              .pipe(timeout(7000)),
+          );
+        } catch (err) {
+          this.logger.error(`Failed to refund escrow on reject for booking ${booking.id}:`, err);
+        }
+      }
+
       booking.status = BookingStatus.REJECTED;
       booking.cancellationReason = dto.reason || 'Bị từ chối bởi người dùng';
       booking.cancelledBy = userId;
@@ -233,24 +313,76 @@ export class BookingService {
       return this.bookingRepo.save(booking);
     }
 
-    // Trường hợp CHẤP NHẬN ➔ Gọi Wallet Microservice để Khóa/Ký quỹ Credit của Learner
-    try {
-      await firstValueFrom(
-        this.walletClient
-          .send('booking.accepted', {
-            bookingId: booking.id,
-            learnerId: booking.learnerId,
-            amount: booking.totalCreditEscrowed,
-          })
-          .pipe(timeout(7000)),
+    // Trường hợp CHẤP NHẬN
+    // 1. Kiểm tra chống trùng lịch (Schedule Conflict Check) cho cả Mentor và Learner
+    const start = booking.scheduledStart;
+    const end = booking.scheduledEnd;
+
+    // Kiểm tra lịch trùng của Mentor (với tư cách là Mentor hoặc Learner ở buổi học khác đã xác nhận)
+    const mentorConflict = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.id != :currentId', { currentId: booking.id })
+      .andWhere('b.status IN (:...activeStatuses)', {
+        activeStatuses: [BookingStatus.CONFIRMED, BookingStatus.STARTED],
+      })
+      .andWhere('(b.mentorId = :mentorId OR b.learnerId = :mentorId)', {
+        mentorId: booking.mentorId,
+      })
+      .andWhere('b.scheduledStart < :end AND b.scheduledEnd > :start', { start, end })
+      .getOne();
+
+    if (mentorConflict) {
+      const isSelf = userId === booking.mentorId;
+      throw new BadRequestException(
+        isSelf
+          ? `Bạn đã có một lịch học khác ("${mentorConflict.title}") trong khung giờ này`
+          : `Gia sư đã có một lịch học khác trong khung giờ này, không thể xác nhận`,
       );
-    } catch (err: any) {
-      this.logger.error(`Escrow hold failed for booking ${booking.id}:`, err);
-      const msg = err?.message || err?.data?.message || 'Học viên không đủ số dư Credit để thực hiện ký quỹ';
-      throw new BadRequestException(msg);
     }
 
-    // Cập nhật trạng thái Booking thành CONFIRMED (Đã xác nhận & Ký quỹ thành công)
+    // Kiểm tra lịch trùng của Learner (với tư cách là Learner hoặc Mentor ở buổi học khác đã xác nhận)
+    const learnerConflict = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.id != :currentId', { currentId: booking.id })
+      .andWhere('b.status IN (:...activeStatuses)', {
+        activeStatuses: [BookingStatus.CONFIRMED, BookingStatus.STARTED],
+      })
+      .andWhere('(b.mentorId = :learnerId OR b.learnerId = :learnerId)', {
+        learnerId: booking.learnerId,
+      })
+      .andWhere('b.scheduledStart < :end AND b.scheduledEnd > :start', { start, end })
+      .getOne();
+
+    if (learnerConflict) {
+      const isSelf = userId === booking.learnerId;
+      throw new BadRequestException(
+        isSelf
+          ? `Bạn đã có một lịch học khác ("${learnerConflict.title}") trong khung giờ này`
+          : `Học viên đã có một lịch học khác trong khung giờ này, không thể xác nhận`,
+      );
+    }
+
+    // 2. Ký quỹ Credit nếu là Học viên duyệt đề nghị của Mentor (Luồng Learner Request)
+    // (Lưu ý: Luồng Mentor Post đã ký quỹ ngay từ lúc Học viên gửi yêu cầu)
+    if (booking.status === BookingStatus.PENDING_LEARNER_APPROVAL) {
+      try {
+        await firstValueFrom(
+          this.walletClient
+            .send('booking.accepted', {
+              bookingId: booking.id,
+              learnerId: booking.learnerId,
+              amount: booking.totalCreditEscrowed,
+            })
+            .pipe(timeout(7000)),
+        );
+      } catch (err: any) {
+        this.logger.error(`Escrow hold failed for booking ${booking.id}:`, err);
+        const msg = err?.message || err?.data?.message || 'Học viên không đủ số dư Credit để thực hiện ký quỹ';
+        throw new BadRequestException(msg);
+      }
+    }
+
+    // Cập nhật trạng thái Booking thành CONFIRMED (Đã xác nhận thành công)
     booking.status = BookingStatus.CONFIRMED;
     booking.acceptedAt = new Date();
     const saved = await this.bookingRepo.save(booking);
@@ -350,6 +482,75 @@ export class BookingService {
   }
 
   /**
+   * POST /bookings/:bookingId/complete — Hoàn thành buổi học & Giải phóng khoản ký quỹ cho Mentor
+   */
+  async completeBooking(userId: string, bookingId: string): Promise<Booking> {
+    const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
+    if (!booking) {
+      throw new NotFoundException('Không tìm thấy bản ghi đặt lịch');
+    }
+
+    if (booking.mentorId !== userId && booking.learnerId !== userId) {
+      throw new ForbiddenException('Bạn không có quyền xác nhận hoàn thành booking này');
+    }
+
+    if (booking.status === BookingStatus.COMPLETED) {
+      return booking;
+    }
+
+    if (booking.status !== BookingStatus.CONFIRMED && booking.status !== BookingStatus.STARTED) {
+      throw new BadRequestException(`Chỉ có thể hoàn thành booking khi đang ở trạng thái "${booking.status}"`);
+    }
+
+    // 1. Giải phóng khoản ký quỹ từ Escrow sang ví khả dụng của Mentor
+    if (booking.totalCreditEscrowed > 0) {
+      try {
+        await firstValueFrom(
+          this.walletClient
+            .send('session.ended', {
+              bookingId: booking.id,
+              learnerId: booking.learnerId,
+              mentorId: booking.mentorId,
+              creditsTransferred: booking.totalCreditEscrowed,
+            })
+            .pipe(timeout(7000)),
+        );
+      } catch (err: any) {
+        this.logger.error(`Release escrow failed for booking ${booking.id}:`, err);
+        throw new BadRequestException('Không thể giải phóng khoản ký quỹ credit sang Mentor. Vui lòng thử lại sau.');
+      }
+    }
+
+    // 2. Cập nhật trạng thái Booking
+    booking.status = BookingStatus.COMPLETED;
+    booking.completedAt = new Date();
+    const saved = await this.bookingRepo.save(booking);
+
+    // 3. Gửi thông báo tới cả Learner và Mentor
+    try {
+      this.notificationClient.emit('notification.create', {
+        userId: booking.mentorId,
+        title: 'Buổi học hoàn tất!',
+        content: `Buổi học "${booking.title}" đã hoàn tất. Bạn đã nhận được ${booking.totalCreditEscrowed} Credit.`,
+        type: 'BOOKING_COMPLETED',
+        referenceId: saved.id,
+      });
+
+      this.notificationClient.emit('notification.create', {
+        userId: booking.learnerId,
+        title: 'Buổi học hoàn tất!',
+        content: `Buổi học "${booking.title}" đã hoàn tất. Cảm ơn bạn đã tham gia học tập!`,
+        type: 'BOOKING_COMPLETED',
+        referenceId: saved.id,
+      });
+    } catch (err) {
+      this.logger.warn('Failed to emit complete notifications:', err);
+    }
+
+    return saved;
+  }
+
+  /**
    * POST /bookings/:bookingId/reject — Mentor từ chối booking
    */
   async rejectBooking(userId: string, bookingId: string, reason?: string): Promise<Booking> {
@@ -374,18 +575,51 @@ export class BookingService {
     }
 
     const wasConfirmed = booking.status === BookingStatus.CONFIRMED;
+    const isMentor = userId === booking.mentorId;
     let creditRefunded = false;
     let trustPenalty = 0;
 
-    // Nếu đã ký quỹ (CONFIRMED) → hoàn credit cho Learner
-    if (wasConfirmed && booking.totalCreditEscrowed > 0) {
+    // Phạt Trust Score & Phí hủy nếu hủy sát giờ (<2h trước buổi học)
+    const hoursUntilSession =
+      (booking.scheduledStart.getTime() - Date.now()) / (1000 * 60 * 60);
+    const isLateCancel = wasConfirmed && hoursUntilSession < 2 && hoursUntilSession > 0;
+
+    let refundAmount = booking.totalCreditEscrowed;
+    let feeAmount = 0;
+
+    if (isLateCancel) {
+      // Người dạy hủy sát giờ: Trừ 10 điểm uy tín, hoàn trả 100% credit cho học viên
+      // Học viên hủy sát giờ: Không trừ uy tín, trừ 10% credit phí hủy (đền bù cho Mentor)
+      if (isMentor) {
+        trustPenalty = -10;
+        refundAmount = booking.totalCreditEscrowed;
+        feeAmount = 0;
+      } else {
+        trustPenalty = 0;
+        feeAmount = Math.round(booking.totalCreditEscrowed * 0.1);
+        refundAmount = Math.max(0, booking.totalCreditEscrowed - feeAmount);
+      }
+    }
+
+    // Nếu đã ký quỹ (CONFIRMED hoặc PENDING_MENTOR_APPROVAL từ Mentor Post) → hoàn credit cho Learner
+    const isPendingLearnerEscrowed =
+      booking.status === BookingStatus.PENDING_MENTOR_APPROVAL &&
+      booking.origin === BookingOrigin.MENTOR_POST;
+
+    if ((wasConfirmed || isPendingLearnerEscrowed) && booking.totalCreditEscrowed > 0) {
+      if (isPendingLearnerEscrowed) {
+        refundAmount = booking.totalCreditEscrowed;
+        feeAmount = 0;
+      }
       try {
         await firstValueFrom(
           this.walletClient
             .send('wallet.refundEscrow', {
               bookingId: booking.id,
               learnerId: booking.learnerId,
-              amount: booking.totalCreditEscrowed,
+              amount: refundAmount,
+              feeAmount,
+              mentorId: booking.mentorId,
             })
             .pipe(timeout(7000)),
         );
@@ -393,13 +627,6 @@ export class BookingService {
       } catch (err) {
         this.logger.error(`Refund escrow failed for booking ${booking.id}:`, err);
       }
-    }
-
-    // Phạt Trust Score nếu hủy sát giờ (<2h trước buổi học)
-    const hoursUntilSession =
-      (booking.scheduledStart.getTime() - Date.now()) / (1000 * 60 * 60);
-    if (wasConfirmed && hoursUntilSession < 2 && hoursUntilSession > 0) {
-      trustPenalty = -5;
     }
 
     booking.status = BookingStatus.CANCELLED;

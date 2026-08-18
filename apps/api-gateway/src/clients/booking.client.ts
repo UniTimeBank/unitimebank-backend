@@ -54,6 +54,10 @@ export class BookingClient {
     return this.request('POST', `/bookings/${bookingId}/accept`, undefined, headers);
   }
 
+  async completeBooking(bookingId: string, headers: Record<string, string>) {
+    return this.request('POST', `/bookings/${bookingId}/complete`, undefined, headers);
+  }
+
   async rejectBooking(bookingId: string, data: any, headers: Record<string, string>) {
     return this.request('POST', `/bookings/${bookingId}/reject`, data, headers);
   }

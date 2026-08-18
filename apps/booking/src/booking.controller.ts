@@ -76,6 +76,16 @@ export class BookingController {
     return this.bookingService.acceptBooking(req.user.id, id);
   }
 
+  /** POST /bookings/:bookingId/complete — Hoàn thành buổi học & Giải phóng khoản ký quỹ */
+  @Post(':id/complete')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Hoàn thành buổi học & Giải phóng khoản ký quỹ Credit cho Mentor' })
+  @ApiResponse({ status: 200, description: 'Hoàn thành buổi học thành công', type: BookingResponseDto })
+  async completeBooking(@Param('id') id: string, @Req() req: any) {
+    return this.bookingService.completeBooking(req.user.id, id);
+  }
+
   /** POST /bookings/:bookingId/reject — Từ chối booking */
   @Post(':id/reject')
   @UseGuards(JwtAuthGuard)
