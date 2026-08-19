@@ -5,6 +5,8 @@ import {
   ForbiddenException,
   Inject,
   Logger,
+  OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -21,8 +23,9 @@ import {
 } from '@app/contracts/booking';
 
 @Injectable()
-export class BookingService {
+export class BookingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BookingService.name);
+  private expirationInterval: NodeJS.Timeout | null = null;
 
   constructor(
     @InjectRepository(Booking)
@@ -31,6 +34,126 @@ export class BookingService {
     @Inject('WALLET_SERVICE') private readonly walletClient: ClientProxy,
     @Inject('NOTIFICATION_SERVICE') private readonly notificationClient: ClientProxy,
   ) {}
+
+  async onModuleInit() {
+    this.logger.log('BookingService initialized. Running initial pending bookings expiration check...');
+    await this.checkAndExpirePendingBookings();
+
+    // Định kỳ quét các yêu cầu quá hạn mỗi 1 phút
+    this.expirationInterval = setInterval(() => {
+      this.checkAndExpirePendingBookings().catch((err) => {
+        this.logger.error('Error during scheduled checkAndExpirePendingBookings sweep:', err);
+      });
+    }, 60 * 1000);
+  }
+
+  onModuleDestroy() {
+    if (this.expirationInterval) {
+      clearInterval(this.expirationInterval);
+      this.expirationInterval = null;
+    }
+  }
+
+  /**
+   * Tự động quét & chuyển trạng thái EXPIRED + hoàn tiền ký quỹ cho các yêu cầu quá hạn 24h hoặc quá giờ bắt đầu
+   */
+  async checkAndExpirePendingBookings(specificBookingId?: string): Promise<number> {
+    try {
+      const qb = this.bookingRepo.createQueryBuilder('booking')
+        .where('booking.status IN (:...pendingStatuses)', {
+          pendingStatuses: [
+            BookingStatus.PENDING_MENTOR_APPROVAL,
+            BookingStatus.PENDING_LEARNER_APPROVAL,
+          ],
+        });
+
+      if (specificBookingId) {
+        qb.andWhere('booking.id = :specificBookingId', { specificBookingId });
+      }
+
+      const pendingList = await qb.getMany();
+      if (!pendingList.length) return 0;
+
+      let expiredCount = 0;
+      const now = Date.now();
+      const EXPIRATION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 giờ
+
+      for (const booking of pendingList) {
+        const createdAtMs = new Date(booking.createdAt).getTime();
+        const scheduledStartMs = new Date(booking.scheduledStart).getTime();
+        const is24hExpired = now - createdAtMs >= EXPIRATION_DURATION_MS;
+        const isStartPassed = now >= scheduledStartMs;
+
+        if (is24hExpired || isStartPassed) {
+          const reason = isStartPassed
+            ? 'Yêu cầu đã quá giờ bắt đầu buổi học mà chưa được phản hồi'
+            : 'Yêu cầu đặt lịch đã hết hạn sau 24 giờ không có phản hồi';
+
+          this.logger.warn(`Auto-expiring booking ${booking.id} (Created at: ${booking.createdAt}, Reason: ${reason})`);
+
+          // 1. Hoàn trả 100% tiền ký quỹ cho Learner nếu origin là MENTOR_POST
+          let creditRefunded = false;
+          if (booking.origin === BookingOrigin.MENTOR_POST && booking.totalCreditEscrowed > 0) {
+            try {
+              await firstValueFrom(
+                this.walletClient
+                  .send('wallet.refundEscrow', {
+                    bookingId: booking.id,
+                    learnerId: booking.learnerId,
+                    amount: booking.totalCreditEscrowed,
+                    reason: `Hoàn tiền: ${reason}`,
+                  })
+                  .pipe(timeout(7000)),
+              );
+              creditRefunded = true;
+              this.logger.log(`Successfully refunded ${booking.totalCreditEscrowed} credits to learner ${booking.learnerId} for expired booking ${booking.id}`);
+            } catch (refundErr) {
+              this.logger.error(`Failed to refund escrow for expired booking ${booking.id}:`, refundErr);
+            }
+          }
+
+          // 2. Cập nhật trạng thái Booking thành EXPIRED
+          booking.status = BookingStatus.EXPIRED;
+          booking.cancelledAt = new Date();
+          booking.cancelledBy = 'SYSTEM';
+          booking.cancellationReason = reason;
+          await this.bookingRepo.save(booking);
+          expiredCount++;
+
+          // 3. Gửi thông báo cho Học viên
+          try {
+            this.notificationClient.emit('notification.create', {
+              userId: booking.learnerId,
+              title: 'Yêu cầu đặt lịch đã hết hạn',
+              content: `Yêu cầu đặt lịch "${booking.title || 'Buổi học'}" đã hết hạn sau 24 giờ không có phản hồi.${creditRefunded ? ` ${booking.totalCreditEscrowed} Credit đã được tự động hoàn lại vào ví khả dụng của bạn.` : ''}`,
+              type: 'BOOKING_CANCELLED',
+              referenceId: booking.id,
+            });
+          } catch (notifErr) {
+            this.logger.warn('Failed to emit learner notification for expired booking:', notifErr);
+          }
+
+          // 4. Gửi thông báo cho Mentor
+          try {
+            this.notificationClient.emit('notification.create', {
+              userId: booking.mentorId,
+              title: 'Yêu cầu đặt lịch đã hết hạn',
+              content: `Yêu cầu đặt lịch "${booking.title || 'Buổi học'}" từ ${booking.learnerName || 'Học viên'} đã hết hạn sau 24 giờ không có phản hồi.`,
+              type: 'BOOKING_CANCELLED',
+              referenceId: booking.id,
+            });
+          } catch (notifErr) {
+            this.logger.warn('Failed to emit mentor notification for expired booking:', notifErr);
+          }
+        }
+      }
+
+      return expiredCount;
+    } catch (err) {
+      this.logger.error('Error during checkAndExpirePendingBookings:', err);
+      return 0;
+    }
+  }
 
   /**
    * Helper: Lấy thông tin họ tên & Avatar thực của user từ User Service
@@ -268,9 +391,16 @@ export class BookingService {
    * Phê duyệt (Xác nhận & Ký quỹ) hoặc Từ chối Booking
    */
   async respondBooking(userId: string, bookingId: string, dto: RespondBookingDto): Promise<Booking> {
+    // 0. Quét kiểm tra hết hạn cho booking này
+    await this.checkAndExpirePendingBookings(bookingId);
+
     const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
     if (!booking) {
       throw new NotFoundException('Không tìm thấy bản ghi đặt lịch');
+    }
+
+    if (booking.status === BookingStatus.EXPIRED) {
+      throw new BadRequestException('Yêu cầu đặt lịch này đã hết hạn sau 24 giờ không có phản hồi');
     }
 
     // Kiểm tra quyền duyệt
@@ -408,6 +538,9 @@ export class BookingService {
    * Lấy danh sách booking của user (Vai trò Learner hoặc Mentor)
    */
   async getMyBookings(userId: string, query: GetBookingsQueryDto) {
+    // 0. Quét kiểm tra và hết hạn realtime các booking quá hạn
+    await this.checkAndExpirePendingBookings();
+
     const qb = this.bookingRepo.createQueryBuilder('booking');
 
     if (query.role === 'AS_LEARNER') {
@@ -466,6 +599,9 @@ export class BookingService {
    * Lấy chi tiết 1 booking
    */
   async getBookingById(bookingId: string): Promise<Booking> {
+    // 0. Quét kiểm tra hết hạn cho booking này
+    await this.checkAndExpirePendingBookings(bookingId);
+
     const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
     if (!booking) {
       throw new NotFoundException('Không tìm thấy thông tin đặt lịch');

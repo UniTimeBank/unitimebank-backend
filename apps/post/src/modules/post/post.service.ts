@@ -107,7 +107,7 @@ export class PostService {
     const limit = Math.max(1, query.limit || 10);
     const skip = (page - 1) * limit;
 
-    const filter: any = { mentorId };
+    const filter: any = { mentorId, status: { $ne: PostStatus.ARCHIVED } };
     if (query.status) {
       filter.status = query.status;
     }
@@ -288,7 +288,10 @@ export class PostService {
     const limit = Math.max(1, query.limit || 10);
     const skip = (page - 1) * limit;
 
-    const filter: any = { learnerId };
+    const filter: any = {
+      learnerId,
+      $or: [{ removedAt: { $exists: false } }, { removedAt: null }],
+    };
     if (query.status) {
       filter.status = query.status;
     }
@@ -390,9 +393,22 @@ export class PostService {
     return this.mapLearnerRequestToDto(updated);
   }
 
-  /** Hủy bài yêu cầu */
+  /** Hủy / Xóa mềm bài yêu cầu */
   async cancelLearnerRequest(id: string, learnerId: string): Promise<LearnerRequestResponseDto> {
-    return this.updateLearnerRequest(id, learnerId, { status: LearnerRequestStatus.CANCELLED });
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('ID yêu cầu không hợp lệ');
+    }
+    const request = await this.learnerRequestModel.findById(id).exec();
+    if (!request) {
+      throw new NotFoundException('Không tìm thấy yêu cầu tìm người dạy');
+    }
+    if (request.learnerId !== learnerId) {
+      throw new ForbiddenException('Bạn không có quyền xóa yêu cầu này');
+    }
+    request.status = LearnerRequestStatus.CANCELLED;
+    request.removedAt = new Date();
+    const updated = await request.save();
+    return this.mapLearnerRequestToDto(updated);
   }
 
   // ====================================================================
