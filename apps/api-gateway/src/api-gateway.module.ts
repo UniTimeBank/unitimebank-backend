@@ -18,7 +18,6 @@ import { WalletRoutes } from './routes/wallet.routes';
 import { ModerationRoutes } from './routes/moderation.routes';
 import { NotificationRoutes } from './routes/notification.routes';
 
-import { ChatGateway } from './gateways/chat.gateway';
 import { CommonModule } from '@app/common';
 
 @Module({
@@ -59,8 +58,8 @@ import { CommonModule } from '@app/common';
     WalletClient,
     ModerationClient,
     NotificationClient,
-    ChatGateway,
   ],
 })
 export class ApiGatewayModule {}
+
 
