@@ -78,4 +78,18 @@ export class BookingClient {
   async getBookingById(bookingId: string, headers: Record<string, string>) {
     return this.request('GET', `/bookings/${bookingId}`, undefined, headers);
   }
+
+  async getBookingMessages(bookingId: string, headers: Record<string, string>) {
+    return this.request('GET', `/bookings/${bookingId}/messages`, undefined, headers);
+  }
+
+  async sendBookingMessage(bookingId: string, data: any, headers: Record<string, string>) {
+    return this.request('POST', `/bookings/${bookingId}/messages`, data, headers);
+  }
+
+  async setTypingStatus(bookingId: string, typing: boolean, headers: Record<string, string>) {
+    return this.request('POST', `/bookings/${bookingId}/typing`, { typing }, headers);
+  }
 }
+
+

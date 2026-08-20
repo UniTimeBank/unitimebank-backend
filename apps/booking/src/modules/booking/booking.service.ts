@@ -12,7 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
-import { Booking } from './modules/booking/entities/booking.entity';
+import { Booking, BookingMessage } from './entities';
 import {
   CreateMentorPostBookingDto,
   CreateLearnerRequestBookingDto,
@@ -20,7 +20,9 @@ import {
   GetBookingsQueryDto,
   BookingOrigin,
   BookingStatus,
+  SendBookingMessageDto,
 } from '@app/contracts/booking';
+import { NOTIFICATION_EVENTS } from '@app/contracts/events';
 
 @Injectable()
 export class BookingService implements OnModuleInit, OnModuleDestroy {
@@ -30,6 +32,8 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(Booking)
     private readonly bookingRepo: Repository<Booking>,
+    @InjectRepository(BookingMessage)
+    private readonly bookingMessageRepo: Repository<BookingMessage>,
     @Inject('POST_SERVICE') private readonly postClient: ClientProxy,
     @Inject('WALLET_SERVICE') private readonly walletClient: ClientProxy,
     @Inject('NOTIFICATION_SERVICE') private readonly notificationClient: ClientProxy,
@@ -122,7 +126,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
           // 3. Gửi thông báo cho Học viên
           try {
-            this.notificationClient.emit('notification.create', {
+            this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
               userId: booking.learnerId,
               title: 'Yêu cầu đặt lịch đã hết hạn',
               content: `Yêu cầu đặt lịch "${booking.title || 'Buổi học'}" đã hết hạn sau 24 giờ không có phản hồi.${creditRefunded ? ` ${booking.totalCreditEscrowed} Credit đã được tự động hoàn lại vào ví khả dụng của bạn.` : ''}`,
@@ -135,7 +139,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
           // 4. Gửi thông báo cho Mentor
           try {
-            this.notificationClient.emit('notification.create', {
+            this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
               userId: booking.mentorId,
               title: 'Yêu cầu đặt lịch đã hết hạn',
               content: `Yêu cầu đặt lịch "${booking.title || 'Buổi học'}" từ ${booking.learnerName || 'Học viên'} đã hết hạn sau 24 giờ không có phản hồi.`,
@@ -158,7 +162,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
   /**
    * Helper: Lấy thông tin họ tên & Avatar thực của user từ User Service
    */
-  private async getUserSnapshot(userId: string): Promise<{ name: string; avatar: string }> {
+  private async getUserSnapshot(userId: string): Promise<{ name: string; avatar: string; trustScore: number }> {
     try {
       const userUrl = process.env.USER_SERVICE_URL || 'http://localhost:3002';
       const res = await fetch(`${userUrl}/users/${userId}`);
@@ -167,13 +171,15 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
         return {
           name: data.displayName || data.fullName || 'Thành viên',
           avatar: data.avatarUrl || '',
+          trustScore: typeof data.trustScore === 'number' ? data.trustScore : 100,
         };
       }
     } catch (err) {
       this.logger.warn(`Could not fetch user snapshot for ${userId}: ${err}`);
     }
-    return { name: 'Thành viên', avatar: '' };
+    return { name: 'Thành viên', avatar: '', trustScore: 100 };
   }
+
 
   /**
    * Learner gửi yêu cầu Đặt lịch trên bài đăng của Mentor
@@ -278,7 +284,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
     // 4. Gửi thông báo cho Mentor
     try {
-      this.notificationClient.emit('notification.create', {
+      this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
         userId: mentorPost.mentorId,
         title: 'Yêu cầu đặt lịch mới',
         content: `${learnerSnap.name || 'Một học viên'} đã gửi yêu cầu học bài "${mentorPost.title}".`,
@@ -373,7 +379,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
     // 3. Gửi thông báo cho Learner
     try {
-      this.notificationClient.emit('notification.create', {
+      this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
         userId: learnerReq.learnerId,
         title: 'Đề nghị dạy mới từ Mentor',
         content: `Mentor ${mentorSnap.name || ''} đã đề nghị dạy bài yêu cầu "${learnerReq.skillNeeded}" của bạn.`,
@@ -520,7 +526,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     // Thông báo cho phía còn lại
     const targetUserId = userId === booking.mentorId ? booking.learnerId : booking.mentorId;
     try {
-      this.notificationClient.emit('notification.create', {
+      this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
         userId: targetUserId,
         title: 'Lịch học đã được xác nhận!',
         content: `Buổi học "${booking.title}" đã được xác nhận thành công và ký quỹ Credit.`,
@@ -559,29 +565,33 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
     const [items, total] = await qb.getManyAndCount();
 
-    // Enrich real profile names & avatars for existing records
+    // Enrich real profile names, avatars & trustScores for existing records
     const enrichedItems = await Promise.all(
       items.map(async (b) => {
         let modified = false;
+        const learnerSnap = await this.getUserSnapshot(b.learnerId);
+        const mentorSnap = await this.getUserSnapshot(b.mentorId);
+
+        (b as any).learnerTrustScore = learnerSnap.trustScore || 100;
+        (b as any).mentorTrustScore = mentorSnap.trustScore || 100;
+
         if (!b.learnerAvatar || b.learnerName === 'Học viên') {
-          const snap = await this.getUserSnapshot(b.learnerId);
-          if (snap.name && snap.name !== 'Thành viên') {
-            b.learnerName = snap.name;
+          if (learnerSnap.name && learnerSnap.name !== 'Thành viên') {
+            b.learnerName = learnerSnap.name;
             modified = true;
           }
-          if (snap.avatar) {
-            b.learnerAvatar = snap.avatar;
+          if (learnerSnap.avatar) {
+            b.learnerAvatar = learnerSnap.avatar;
             modified = true;
           }
         }
         if (!b.mentorAvatar || b.mentorName === 'Mentor') {
-          const snap = await this.getUserSnapshot(b.mentorId);
-          if (snap.name && snap.name !== 'Thành viên') {
-            b.mentorName = snap.name;
+          if (mentorSnap.name && mentorSnap.name !== 'Thành viên') {
+            b.mentorName = mentorSnap.name;
             modified = true;
           }
-          if (snap.avatar) {
-            b.mentorAvatar = snap.avatar;
+          if (mentorSnap.avatar) {
+            b.mentorAvatar = mentorSnap.avatar;
             modified = true;
           }
         }
@@ -606,8 +616,15 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     if (!booking) {
       throw new NotFoundException('Không tìm thấy thông tin đặt lịch');
     }
+
+    const learnerSnap = await this.getUserSnapshot(booking.learnerId);
+    const mentorSnap = await this.getUserSnapshot(booking.mentorId);
+    (booking as any).learnerTrustScore = learnerSnap.trustScore || 100;
+    (booking as any).mentorTrustScore = mentorSnap.trustScore || 100;
+
     return booking;
   }
+
 
   /**
    * POST /bookings/:bookingId/accept — Mentor chấp nhận booking (Luồng A)
@@ -664,7 +681,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
     // 3. Gửi thông báo tới cả Learner và Mentor
     try {
-      this.notificationClient.emit('notification.create', {
+      this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
         userId: booking.mentorId,
         title: 'Buổi học hoàn tất!',
         content: `Buổi học "${booking.title}" đã hoàn tất. Bạn đã nhận được ${booking.totalCreditEscrowed} Credit.`,
@@ -672,7 +689,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
         referenceId: saved.id,
       });
 
-      this.notificationClient.emit('notification.create', {
+      this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
         userId: booking.learnerId,
         title: 'Buổi học hoàn tất!',
         content: `Buổi học "${booking.title}" đã hoàn tất. Cảm ơn bạn đã tham gia học tập!`,
@@ -774,7 +791,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     // Thông báo
     const targetUserId = userId === booking.mentorId ? booking.learnerId : booking.mentorId;
     try {
-      this.notificationClient.emit('notification.create', {
+      this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
         userId: targetUserId,
         title: 'Buổi học đã bị hủy',
         content: `Buổi học "${booking.title}" đã bị hủy. ${creditRefunded ? 'Credit đã được hoàn lại.' : ''}`,
@@ -821,7 +838,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     // Thông báo
     const targetUserId = userId === booking.mentorId ? booking.learnerId : booking.mentorId;
     try {
-      this.notificationClient.emit('notification.create', {
+      this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
         userId: targetUserId,
         title: 'Đánh dấu không đến (No-show)',
         content: `Buổi học "${booking.title}" bị đánh dấu không có người tham gia.`,
@@ -836,6 +853,138 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       id: booking.id,
       status: booking.status,
       trustPenalty,
+    };
+  }
+
+  private activeTypingMap = new Map<string, { userId: string; until: number }>();
+
+  setTypingStatus(userId: string, bookingId: string, typing: boolean) {
+    if (typing) {
+      this.activeTypingMap.set(bookingId, { userId, until: Date.now() + 4000 });
+    } else {
+      const current = this.activeTypingMap.get(bookingId);
+      if (current && current.userId === userId) {
+        this.activeTypingMap.delete(bookingId);
+      }
+    }
+    return { success: true };
+  }
+
+  getTypingPartner(userId: string, bookingId: string): boolean {
+    const current = this.activeTypingMap.get(bookingId);
+    if (!current) return false;
+    if (Date.now() > current.until) {
+      this.activeTypingMap.delete(bookingId);
+      return false;
+    }
+    return current.userId !== userId;
+  }
+
+  /**
+   * GET /bookings/:bookingId/messages — Lấy danh sách tin nhắn của buổi học
+   */
+  async getBookingMessages(userId: string, bookingId: string): Promise<any> {
+    const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
+    if (!booking) {
+      throw new NotFoundException('Không tìm thấy bản ghi đặt lịch');
+    }
+
+    if (booking.mentorId !== userId && booking.learnerId !== userId) {
+      throw new ForbiddenException('Bạn không có quyền xem tin nhắn của buổi học này');
+    }
+
+    const allowedStatuses: string[] = [BookingStatus.CONFIRMED, BookingStatus.STARTED, BookingStatus.COMPLETED];
+    if (!allowedStatuses.includes(booking.status)) {
+      throw new BadRequestException('Chỉ có thể truy cập tin nhắn khi buổi học đã được chấp nhận.');
+    }
+
+    // Đánh dấu đã xem (read_at) cho tất cả tin nhắn gửi tới user hiện tại
+    await this.bookingMessageRepo
+      .createQueryBuilder()
+      .update(BookingMessage)
+      .set({ readAt: new Date() })
+      .where('booking_id = :bookingId', { bookingId })
+      .andWhere('sender_id != :userId', { userId })
+      .andWhere('read_at IS NULL')
+      .execute();
+
+    const messages = await this.bookingMessageRepo.find({
+      where: { bookingId },
+      order: { sentAt: 'ASC' },
+    });
+
+    const enriched = messages.map((m) => {
+      const isSenderMentor = m.senderId === booking.mentorId;
+      return {
+        ...m,
+        senderName: isSenderMentor ? booking.mentorName : booking.learnerName,
+        senderAvatar: isSenderMentor ? booking.mentorAvatar : booking.learnerAvatar,
+      };
+    });
+
+    const isPartnerTyping = this.getTypingPartner(userId, bookingId);
+
+    return {
+      items: enriched,
+      isPartnerTyping,
+    };
+  }
+
+
+  /**
+   * POST /bookings/:bookingId/messages — Gửi tin nhắn trao đổi trước buổi học
+   */
+  async sendBookingMessage(
+    userId: string,
+    bookingId: string,
+    dto: SendBookingMessageDto,
+  ): Promise<any> {
+    const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
+    if (!booking) {
+      throw new NotFoundException('Không tìm thấy bản ghi đặt lịch');
+    }
+
+    if (booking.mentorId !== userId && booking.learnerId !== userId) {
+      throw new ForbiddenException('Bạn không có quyền gửi tin nhắn trong buổi học này');
+    }
+
+    const allowedStatuses: string[] = [BookingStatus.CONFIRMED, BookingStatus.STARTED, BookingStatus.COMPLETED];
+    if (!allowedStatuses.includes(booking.status)) {
+      throw new BadRequestException('Chỉ có thể gửi tin nhắn khi buổi học đã được chấp nhận.');
+    }
+
+
+
+    const newMsg = this.bookingMessageRepo.create({
+      bookingId,
+      senderId: userId,
+      content: dto.content,
+      attachmentUrl: dto.attachmentUrl,
+    });
+
+    const saved = await this.bookingMessageRepo.save(newMsg);
+
+    // Gửi thông báo tới người nhận đối tác
+    const targetUserId = userId === booking.mentorId ? booking.learnerId : booking.mentorId;
+    const senderName = userId === booking.mentorId ? booking.mentorName : booking.learnerName;
+
+    try {
+      this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
+        userId: targetUserId,
+        title: `Tin nhắn mới từ ${senderName || 'Đối tác học tập'}`,
+        content: dto.content.length > 80 ? `${dto.content.substring(0, 80)}...` : dto.content,
+        type: 'BOOKING_MESSAGE',
+        referenceId: booking.id,
+      });
+    } catch (err) {
+      this.logger.warn('Failed to emit message notification:', err);
+    }
+
+    const isSenderMentor = saved.senderId === booking.mentorId;
+    return {
+      ...saved,
+      senderName: isSenderMentor ? booking.mentorName : booking.learnerName,
+      senderAvatar: isSenderMentor ? booking.mentorAvatar : booking.learnerAvatar,
     };
   }
 }
