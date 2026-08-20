@@ -27,6 +27,8 @@ import {
   GetBookingsQueryDto,
   GetBookingsResponseDto,
   BookingResponseDto,
+  SendBookingMessageDto,
+  BookingMessageResponseDto,
 } from '@app/contracts/booking';
 
 @ApiTags('Booking - Đặt lịch & Quản lý đề nghị')
@@ -143,4 +145,47 @@ export class BookingController {
   async getBookingById(@Param('id') id: string) {
     return this.bookingService.getBookingById(id);
   }
+
+  // ════════════════════════════════════════════════════════════════
+  // TIN NHẮN TRAO ĐỔI TRƯỚC BUỔI HỌC (MESSAGING)
+  // ════════════════════════════════════════════════════════════════
+
+  /** GET /bookings/:id/messages — Lấy danh sách tin nhắn */
+  @Get(':id/messages')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy danh sách tin nhắn của buổi học' })
+  @ApiResponse({ status: 200, description: 'Danh sách tin nhắn', type: [BookingMessageResponseDto] })
+  async getBookingMessages(@Param('id') id: string, @Req() req: any) {
+    return this.bookingService.getBookingMessages(req.user.id, id);
+  }
+
+  /** POST /bookings/:id/messages — Gửi tin nhắn */
+  @Post(':id/messages')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Gửi tin nhắn trao đổi trong buổi học' })
+  @ApiBody({ type: SendBookingMessageDto })
+  @ApiResponse({ status: 201, description: 'Gửi tin nhắn thành công', type: BookingMessageResponseDto })
+  async sendBookingMessage(
+    @Param('id') id: string,
+    @Body() dto: SendBookingMessageDto,
+    @Req() req: any,
+  ) {
+    return this.bookingService.sendBookingMessage(req.user.id, id, dto);
+  }
+
+  /** POST /bookings/:id/typing — Báo hiệu trạng thái đang soạn tin */
+  @Post(':id/typing')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cập nhật trạng thái đang soạn tin nhắn' })
+  async setTypingStatus(
+    @Param('id') id: string,
+    @Body('typing') typing: boolean,
+    @Req() req: any,
+  ) {
+    return this.bookingService.setTypingStatus(req.user.id, id, typing);
+  }
 }
+
