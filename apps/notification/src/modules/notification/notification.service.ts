@@ -4,11 +4,10 @@ import { Repository } from 'typeorm';
 import {
   Notification,
   NotificationInbox,
-  NotificationDelivery,
-  NotificationPreference,
 } from './entities';
 import { NotificationKind } from './enums';
 import type { CreateNotificationEvent } from '@app/contracts/events';
+import type { GetMyNotificationsResponseDto, UnreadCountResponseDto } from '@app/contracts/notification';
 
 @Injectable()
 export class NotificationService {
@@ -29,16 +28,28 @@ export class NotificationService {
 
     // Map type string sang NotificationKind phù hợp
     let kind = NotificationKind.BOOKING_CREATED;
-    if (type?.includes('ACCEPTED')) {
+    const typeUpper = (type || '').toUpperCase();
+
+    if (typeUpper.includes('ACCEPTED')) {
       kind = NotificationKind.BOOKING_ACCEPTED;
-    } else if (type?.includes('REJECTED')) {
+    } else if (typeUpper.includes('REJECTED')) {
       kind = NotificationKind.BOOKING_REJECTED;
-    } else if (type?.includes('CANCELLED')) {
+    } else if (typeUpper.includes('CANCELLED')) {
       kind = NotificationKind.BOOKING_CANCELLED;
-    } else if (type?.includes('POST')) {
+    } else if (typeUpper.includes('STARTED')) {
+      kind = NotificationKind.BOOKING_STARTED;
+    } else if (typeUpper.includes('COMPLETED')) {
+      kind = NotificationKind.BOOKING_COMPLETED;
+    } else if (typeUpper.includes('CHAT') || typeUpper.includes('MESSAGE')) {
+      kind = NotificationKind.CHAT_MESSAGE;
+    } else if (typeUpper.includes('POST')) {
       kind = NotificationKind.POST_NEW_FROM_FOLLOWED_MENTOR;
-    } else if (type?.includes('REWARD') || type?.includes('STREAK')) {
+    } else if (typeUpper.includes('REWARD') || typeUpper.includes('STREAK')) {
       kind = NotificationKind.WALLET_REWARD_GRANTED;
+    } else if (typeUpper.includes('REGISTERED')) {
+      kind = NotificationKind.USER_REGISTERED;
+    } else if (typeUpper.includes('MODERATION')) {
+      kind = NotificationKind.MODERATION_RESULT;
     }
 
     const notification = this.notificationRepo.create({
@@ -48,6 +59,7 @@ export class NotificationService {
       body: content || '',
       sourceEvent: type || 'SYSTEM',
       payloadRef: referenceId,
+      avatarUrl: data.avatarUrl || undefined,
     });
 
     const savedNotification = await this.notificationRepo.save(notification);
@@ -65,17 +77,45 @@ export class NotificationService {
   }
 
   /**
-   * Lấy danh sách thông báo trong Hộp thư của người dùng
+   * Lấy danh sách thông báo trong Hộp thư của người dùng kèm số lượng chưa đọc
    */
-  async getMyNotifications(recipientId: string, limit = 20): Promise<NotificationInbox[]> {
-    return this.inboxRepo.find({
-      where: { recipientId },
+  async getMyNotifications(
+    recipientId: string,
+    limit = 20,
+    unreadOnly = false,
+  ): Promise<GetMyNotificationsResponseDto> {
+    const whereCondition: any = { recipientId };
+    if (unreadOnly) {
+      whereCondition.isRead = false;
+    }
+
+    const [items, total] = await this.inboxRepo.findAndCount({
+      where: whereCondition,
       relations: { notification: true },
-      order: { notification: { createdAt: 'DESC' } },
+      order: { createdAt: 'DESC' },
       take: limit,
     });
+
+    const unreadCount = await this.inboxRepo.count({
+      where: { recipientId, isRead: false },
+    });
+
+    return {
+      items: items as any,
+      total,
+      unreadCount,
+    };
   }
 
+  /**
+   * Lấy số lượng thông báo chưa đọc
+   */
+  async getUnreadCount(recipientId: string): Promise<UnreadCountResponseDto> {
+    const unreadCount = await this.inboxRepo.count({
+      where: { recipientId, isRead: false },
+    });
+    return { unreadCount };
+  }
 
   /**
    * Đánh dấu 1 thông báo đã đọc
@@ -83,6 +123,7 @@ export class NotificationService {
   async markAsRead(recipientId: string, inboxId: string): Promise<NotificationInbox> {
     const inbox = await this.inboxRepo.findOne({
       where: { id: inboxId, recipientId },
+      relations: { notification: true },
     });
     if (!inbox) {
       throw new NotFoundException('Không tìm thấy thông báo');
@@ -95,10 +136,25 @@ export class NotificationService {
   /**
    * Đánh dấu tất cả thông báo đã đọc
    */
-  async markAllAsRead(recipientId: string): Promise<void> {
+  async markAllAsRead(recipientId: string): Promise<{ success: boolean; message: string }> {
     await this.inboxRepo.update(
       { recipientId, isRead: false },
       { isRead: true, readAt: new Date() },
     );
+    return { success: true, message: 'Đã đánh dấu tất cả thông báo là đã đọc' };
+  }
+
+  /**
+   * Xóa một thông báo khỏi hộp thư
+   */
+  async deleteNotification(recipientId: string, inboxId: string): Promise<{ success: boolean }> {
+    const inbox = await this.inboxRepo.findOne({
+      where: { id: inboxId, recipientId },
+    });
+    if (!inbox) {
+      throw new NotFoundException('Không tìm thấy thông báo');
+    }
+    await this.inboxRepo.remove(inbox);
+    return { success: true };
   }
 }

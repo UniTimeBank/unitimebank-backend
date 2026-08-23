@@ -16,11 +16,23 @@ export class BookingMessage {
   @Column({ name: 'sender_id' })
   senderId: string;
 
+  @Column({ default: 'TEXT' })
+  type: string; // 'TEXT' | 'IMAGE' | 'FILE' | 'LINK' | 'SYSTEM'
+
   @Column()
   content: string;
 
   @Column({ name: 'attachment_url', nullable: true })
   attachmentUrl: string;
+
+  @Column({ name: 'attachment_name', nullable: true })
+  attachmentName: string;
+
+  @Column({ name: 'attachment_size', type: 'bigint', nullable: true })
+  attachmentSize: number;
+
+  @Column({ name: 'attachment_mime', nullable: true })
+  attachmentMime: string;
 
   @CreateDateColumn({ name: 'sent_at' })
   sentAt: Date;

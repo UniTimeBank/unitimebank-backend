@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { CommonModule } from '@app/common';
 import { BookingModule as BookingFeatureModule } from './modules/booking';
 import {
@@ -14,6 +15,7 @@ import {
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     CommonModule,
     TypeOrmModule.forRoot({
       type: 'postgres',

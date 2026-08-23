@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { CloudinaryModule } from '@app/common';
 import {
   Booking,
   BookingMessage,
@@ -13,6 +14,7 @@ import { BookingController } from './booking.controller';
 
 @Module({
   imports: [
+    CloudinaryModule,
     TypeOrmModule.forFeature([
       Booking,
       BookingMessage,

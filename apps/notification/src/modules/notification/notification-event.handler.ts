@@ -36,7 +36,7 @@ export class NotificationEventHandler {
   }
 
   /**
-   * Lắng nghe event khi có bài viết/lớp học mới từ Mentor
+   * Lắng nghe event khi có bài viết mới từ Mentor
    */
   @EventPattern(POST_EVENTS.POST_CREATED)
   async handlePostCreated(@Payload() data: PostCreatedEvent) {
@@ -53,6 +53,18 @@ export class NotificationEventHandler {
     this.logger.log(
       `[EVENT] Received ${USER_EVENTS.USER_CHECKIN_STREAK} for user ${data?.userId} (Day ${data?.streakDay}, +${data?.rewardCredits} Credits)`
     );
+    if (!data?.userId) return;
+    try {
+      await this.notificationService.createNotification({
+        userId: data.userId,
+        title: 'Thưởng chuỗi điểm danh',
+        content: `Chúc mừng bạn đã duy trì chuỗi ${data.streakDay} ngày điểm danh và nhận được +${data.rewardCredits} Credits!`,
+        type: 'WALLET_REWARD_GRANTED',
+        referenceId: data.userId,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to handle ${USER_EVENTS.USER_CHECKIN_STREAK}:`, err);
+    }
   }
 
   /**
@@ -61,5 +73,17 @@ export class NotificationEventHandler {
   @EventPattern(USER_EVENTS.USER_REGISTERED)
   async handleUserRegistered(@Payload() data: UserRegisteredEvent) {
     this.logger.log(`[EVENT] Received ${USER_EVENTS.USER_REGISTERED} for user ${data?.userId}`);
+    if (!data?.userId) return;
+    try {
+      await this.notificationService.createNotification({
+        userId: data.userId,
+        title: 'Chào mừng bạn đến với UniTimeBank',
+        content: 'Tài khoản của bạn đã được khởi tạo thành công. Hãy khám phá các bài chia sẻ kiến thức và đặt lịch học ngay hôm nay!',
+        type: 'USER_REGISTERED',
+        referenceId: data.userId,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to handle ${USER_EVENTS.USER_REGISTERED}:`, err);
+    }
   }
 }

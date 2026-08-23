@@ -9,10 +9,11 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, IsNull, LessThanOrEqual } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
-import { Booking, BookingMessage } from './entities';
+import { Booking, BookingMessage, BookingReminder } from './entities';
+import { ReminderChannel } from './enums';
 import {
   CreateMentorPostBookingDto,
   CreateLearnerRequestBookingDto,
@@ -23,6 +24,7 @@ import {
   SendBookingMessageDto,
 } from '@app/contracts/booking';
 import { NOTIFICATION_EVENTS } from '@app/contracts/events';
+import { CloudinaryService } from '@app/common';
 
 @Injectable()
 export class BookingService implements OnModuleInit, OnModuleDestroy {
@@ -34,19 +36,26 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BookingMessage)
     private readonly bookingMessageRepo: Repository<BookingMessage>,
+    @InjectRepository(BookingReminder)
+    private readonly bookingReminderRepo: Repository<BookingReminder>,
     @Inject('POST_SERVICE') private readonly postClient: ClientProxy,
     @Inject('WALLET_SERVICE') private readonly walletClient: ClientProxy,
     @Inject('NOTIFICATION_SERVICE') private readonly notificationClient: ClientProxy,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   async onModuleInit() {
-    this.logger.log('BookingService initialized. Running initial pending bookings expiration check...');
+    this.logger.log('BookingService initialized. Running initial checks for pending expirations & reminders...');
     await this.checkAndExpirePendingBookings();
+    await this.checkAndSendBookingReminders();
 
-    // Định kỳ quét các yêu cầu quá hạn mỗi 1 phút
+    // Định kỳ quét các yêu cầu quá hạn và gửi nhắc nhở mỗi 1 phút
     this.expirationInterval = setInterval(() => {
       this.checkAndExpirePendingBookings().catch((err) => {
         this.logger.error('Error during scheduled checkAndExpirePendingBookings sweep:', err);
+      });
+      this.checkAndSendBookingReminders().catch((err) => {
+        this.logger.error('Error during scheduled checkAndSendBookingReminders sweep:', err);
       });
     }, 60 * 1000);
   }
@@ -537,6 +546,9 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('Failed to emit notification:', err);
     }
 
+    // 4. Tạo lịch nhắc nhở tự động cho buổi học
+    await this.createBookingReminders(saved);
+
     return saved;
   }
 
@@ -565,6 +577,31 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
     const [items, total] = await qb.getManyAndCount();
 
+    // Query message stats for these bookings
+    const bookingIds = items.map((b) => b.id);
+    const messageStatsMap = new Map<string, { count: number; lastSentAt?: Date }>();
+    if (bookingIds.length > 0) {
+      try {
+        const stats = await this.bookingMessageRepo
+          .createQueryBuilder('m')
+          .select('m.booking_id', 'bookingId')
+          .addSelect('COUNT(m.id)', 'count')
+          .addSelect('MAX(m.sent_at)', 'lastSentAt')
+          .where('m.booking_id IN (:...bookingIds)', { bookingIds })
+          .groupBy('m.booking_id')
+          .getRawMany();
+
+        stats.forEach((s) => {
+          messageStatsMap.set(s.bookingId, {
+            count: parseInt(s.count, 10) || 0,
+            lastSentAt: s.lastSentAt ? new Date(s.lastSentAt) : undefined,
+          });
+        });
+      } catch (err) {
+        this.logger.warn('Failed to query message stats:', err);
+      }
+    }
+
     // Enrich real profile names, avatars & trustScores for existing records
     const enrichedItems = await Promise.all(
       items.map(async (b) => {
@@ -574,6 +611,11 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
         (b as any).learnerTrustScore = learnerSnap.trustScore || 100;
         (b as any).mentorTrustScore = mentorSnap.trustScore || 100;
+
+        const stat = messageStatsMap.get(b.id);
+        (b as any).hasMessages = (stat?.count || 0) > 0;
+        (b as any).messageCount = stat?.count || 0;
+        (b as any).lastMessageSentAt = stat?.lastSentAt;
 
         if (!b.learnerAvatar || b.learnerName === 'Học viên') {
           if (learnerSnap.name && learnerSnap.name !== 'Thành viên') {
@@ -893,9 +935,35 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Bạn không có quyền xem tin nhắn của buổi học này');
     }
 
-    const allowedStatuses: string[] = [BookingStatus.CONFIRMED, BookingStatus.STARTED, BookingStatus.COMPLETED];
+    const allowedStatuses: string[] = [
+      BookingStatus.CONFIRMED,
+      BookingStatus.STARTED,
+      BookingStatus.COMPLETED,
+      BookingStatus.CANCELLED,
+      BookingStatus.REJECTED,
+      BookingStatus.EXPIRED,
+      BookingStatus.NO_SHOW,
+    ];
     if (!allowedStatuses.includes(booking.status)) {
-      throw new BadRequestException('Chỉ có thể truy cập tin nhắn khi buổi học đã được chấp nhận.');
+      throw new BadRequestException('Chỉ có thể truy cập tin nhắn khi buổi học đã được xác nhận hoặc xử lý.');
+    }
+
+    // Tìm tất cả các booking liên quan giữa 2 người (để giữ trọn vẹn lịch sử tin nhắn dù đã hủy hay book lại)
+    const relatedBookings = await this.bookingRepo.find({
+      where: {
+        learnerId: booking.learnerId,
+        mentorId: booking.mentorId,
+      },
+      select: { id: true, sourcePostId: true },
+    });
+
+    const matchingBookings = booking.sourcePostId
+      ? relatedBookings.filter((b) => b.sourcePostId === booking.sourcePostId)
+      : relatedBookings;
+
+    const relatedIds = matchingBookings.map((b) => b.id);
+    if (!relatedIds.includes(bookingId)) {
+      relatedIds.push(bookingId);
     }
 
     // Đánh dấu đã xem (read_at) cho tất cả tin nhắn gửi tới user hiện tại
@@ -903,13 +971,13 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       .createQueryBuilder()
       .update(BookingMessage)
       .set({ readAt: new Date() })
-      .where('booking_id = :bookingId', { bookingId })
+      .where('booking_id IN (:...relatedIds)', { relatedIds })
       .andWhere('sender_id != :userId', { userId })
       .andWhere('read_at IS NULL')
       .execute();
 
     const messages = await this.bookingMessageRepo.find({
-      where: { bookingId },
+      where: { bookingId: In(relatedIds) },
       order: { sentAt: 'ASC' },
     });
 
@@ -948,18 +1016,36 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Bạn không có quyền gửi tin nhắn trong buổi học này');
     }
 
-    const allowedStatuses: string[] = [BookingStatus.CONFIRMED, BookingStatus.STARTED, BookingStatus.COMPLETED];
+    const allowedStatuses: string[] = [BookingStatus.CONFIRMED, BookingStatus.STARTED];
     if (!allowedStatuses.includes(booking.status)) {
-      throw new BadRequestException('Chỉ có thể gửi tin nhắn khi buổi học đã được chấp nhận.');
+      throw new BadRequestException('Chỉ có thể gửi tin nhắn khi buổi học đang diễn ra hoặc đã được xác nhận.');
     }
 
 
 
+    // Auto-detect message type if not explicitly supplied
+    let msgType = dto.type || 'TEXT';
+    if (!dto.type) {
+      if (dto.attachmentUrl) {
+        msgType = dto.attachmentMime?.startsWith('image/') ? 'IMAGE' : 'FILE';
+      } else {
+        const trimmed = (dto.content || '').trim();
+        const isUrl = /^https?:\/\/[^\s]+$/i.test(trimmed) || /^(meet\.google\.com|zoom\.us|github\.com|figma\.com|drive\.google\.com)/i.test(trimmed);
+        if (isUrl) {
+          msgType = 'LINK';
+        }
+      }
+    }
+
     const newMsg = this.bookingMessageRepo.create({
       bookingId,
       senderId: userId,
+      type: msgType,
       content: dto.content,
       attachmentUrl: dto.attachmentUrl,
+      attachmentName: dto.attachmentName,
+      attachmentSize: dto.attachmentSize,
+      attachmentMime: dto.attachmentMime,
     });
 
     const saved = await this.bookingMessageRepo.save(newMsg);
@@ -967,14 +1053,23 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     // Gửi thông báo tới người nhận đối tác
     const targetUserId = userId === booking.mentorId ? booking.learnerId : booking.mentorId;
     const senderName = userId === booking.mentorId ? booking.mentorName : booking.learnerName;
+    const senderAvatar = userId === booking.mentorId ? booking.mentorAvatar : booking.learnerAvatar;
 
     try {
       this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
         userId: targetUserId,
         title: `Tin nhắn mới từ ${senderName || 'Đối tác học tập'}`,
-        content: dto.content.length > 80 ? `${dto.content.substring(0, 80)}...` : dto.content,
-        type: 'BOOKING_MESSAGE',
+        content:
+          dto.type === 'IMAGE'
+            ? 'Đã gửi một hình ảnh'
+            : dto.type === 'FILE'
+            ? `Đã gửi tệp đính kèm: ${dto.attachmentName || 'Tài liệu'}`
+            : dto.content.length > 80
+            ? `${dto.content.substring(0, 80)}...`
+            : dto.content,
+        type: 'CHAT_MESSAGE',
         referenceId: booking.id,
+        avatarUrl: senderAvatar,
       });
     } catch (err) {
       this.logger.warn('Failed to emit message notification:', err);
@@ -986,5 +1081,159 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       senderName: isSenderMentor ? booking.mentorName : booking.learnerName,
       senderAvatar: isSenderMentor ? booking.mentorAvatar : booking.learnerAvatar,
     };
+  }
+
+  /**
+   * Upload tệp đính kèm / hình ảnh cho phòng chat của buổi học
+   */
+  async uploadChatAttachment(
+    userId: string,
+    bookingId: string,
+    file: Express.Multer.File,
+  ): Promise<{
+    url: string;
+    name: string;
+    size: number;
+    mime: string;
+    type: string;
+  }> {
+    const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
+    if (!booking) {
+      throw new NotFoundException('Không tìm thấy bản ghi đặt lịch');
+    }
+
+    if (booking.mentorId !== userId && booking.learnerId !== userId) {
+      throw new ForbiddenException('Bạn không có quyền gửi tệp trong buổi học này');
+    }
+
+    if (!file || !file.buffer) {
+      throw new BadRequestException('Vui lòng chọn tệp tin hợp lệ để tải lên');
+    }
+
+    // Security check: Block dangerous executable file extensions
+    const forbiddenExtensions = [
+      '.exe',
+      '.bat',
+      '.cmd',
+      '.sh',
+      '.vbs',
+      '.apk',
+      '.msi',
+      '.scr',
+      '.pif',
+    ];
+    const fileExt = (file.originalname || '').toLowerCase();
+    if (forbiddenExtensions.some((ext) => fileExt.endsWith(ext))) {
+      throw new BadRequestException(
+        'Định dạng tệp tin này không được phép gửi vì lý do an toàn bảo mật.',
+      );
+    }
+
+    const maxFileSize = 10 * 1024 * 1024; // 10MB (Giới hạn gói Cloudinary Free)
+    if (file.size > maxFileSize) {
+      throw new BadRequestException('Dung lượng tệp vượt quá giới hạn cho phép (tối đa 10MB).');
+    }
+
+    let cleanOriginalName = file.originalname;
+    try {
+      cleanOriginalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    } catch {}
+
+    const result = await this.cloudinaryService.uploadAttachment(
+      file.buffer,
+      cleanOriginalName,
+      file.mimetype,
+      'unitimebank/chat-attachments',
+    );
+
+    const isImage = file.mimetype.startsWith('image/');
+    return {
+      url: result.url,
+      name: cleanOriginalName,
+      size: file.size,
+      mime: file.mimetype,
+      type: isImage ? 'IMAGE' : 'FILE',
+    };
+  }
+
+  /**
+   * Tạo bản ghi nhắc nhở (Reminder) cho cả Mentor và Learner trước buổi học 30 phút
+   */
+  async createBookingReminders(booking: Booking): Promise<void> {
+    try {
+      if (!booking || booking.status !== BookingStatus.CONFIRMED) return;
+
+      const scheduledStartMs = new Date(booking.scheduledStart).getTime();
+      const fireAt15 = new Date(scheduledStartMs - 30 * 60 * 1000);
+      const fireAt = fireAt15.getTime() > Date.now() ? fireAt15 : new Date(Date.now() + 30 * 1000);
+
+      // Tạo reminder cho Mentor
+      const mentorReminder = this.bookingReminderRepo.create({
+        bookingId: booking.id,
+        recipientId: booking.mentorId,
+        fireAt,
+        channel: ReminderChannel.IN_APP,
+      });
+
+      // Tạo reminder cho Learner
+      const learnerReminder = this.bookingReminderRepo.create({
+        bookingId: booking.id,
+        recipientId: booking.learnerId,
+        fireAt,
+        channel: ReminderChannel.IN_APP,
+      });
+
+      await this.bookingReminderRepo.save([mentorReminder, learnerReminder]);
+      this.logger.log(`Created reminders for booking ${booking.id} to fire at ${fireAt.toISOString()}`);
+    } catch (err) {
+      this.logger.error(`Failed to create reminders for booking ${booking?.id}:`, err);
+    }
+  }
+
+  /**
+   * Quét và gửi thông báo nhắc nhở các buổi học sắp đến giờ
+   */
+  async checkAndSendBookingReminders(): Promise<void> {
+    try {
+      const now = new Date();
+      const dueReminders = await this.bookingReminderRepo.find({
+        where: {
+          sentAt: IsNull(),
+          fireAt: LessThanOrEqual(now),
+        },
+        relations: { booking: true },
+      });
+
+      if (!dueReminders.length) return;
+
+      this.logger.log(`Found ${dueReminders.length} due reminders to send`);
+
+      for (const reminder of dueReminders) {
+        const booking = reminder.booking;
+        if (booking && (booking.status === BookingStatus.CONFIRMED || booking.status === BookingStatus.STARTED)) {
+          const isMentor = reminder.recipientId === booking.mentorId;
+          const partnerName = isMentor ? (booking.learnerName || 'Học viên') : (booking.mentorName || 'Mentor');
+
+          try {
+            this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
+              userId: reminder.recipientId,
+              title: 'Nhắc nhở: Lịch học sắp bắt đầu!',
+              content: `Buổi học "${booking.title}" với ${partnerName} sắp diễn ra. Hãy chuẩn bị sẵn sàng nhé!`,
+              type: 'BOOKING_REMINDER',
+              referenceId: booking.id,
+              avatarUrl: isMentor ? booking.learnerAvatar : booking.mentorAvatar,
+            });
+            this.logger.log(`Sent BOOKING_REMINDER for booking ${booking.id} to user ${reminder.recipientId}`);
+          } catch (emitErr) {
+            this.logger.warn(`Failed to emit reminder for booking ${booking.id}:`, emitErr);
+          }
+        }
+
+        reminder.sentAt = new Date();
+        await this.bookingReminderRepo.save(reminder);
+      }
+    } catch (err) {
+      this.logger.error('Error during scheduled checkAndSendBookingReminders sweep:', err);
+    }
   }
 }

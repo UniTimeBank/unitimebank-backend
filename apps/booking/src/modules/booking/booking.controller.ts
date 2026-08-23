@@ -8,7 +8,10 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -16,6 +19,7 @@ import {
   ApiBody,
   ApiBearerAuth,
   ApiQuery,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@app/common/guards/jwt-auth.guard';
 import { BookingService } from './booking.service';
@@ -186,6 +190,21 @@ export class BookingController {
     @Req() req: any,
   ) {
     return this.bookingService.setTypingStatus(req.user.id, id, typing);
+  }
+
+  /** POST /bookings/:id/attachments — Tải lên tệp đính kèm hoặc hình ảnh trong phòng chat */
+  @Post(':id/attachments')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Tải lên hình ảnh hoặc tệp tin đính kèm trong tin nhắn' })
+  async uploadChatAttachment(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
+  ) {
+    return this.bookingService.uploadChatAttachment(req.user.id, id, file);
   }
 }
 

@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { Notification } from './notification.entity';
 
 @Entity('notification_inbox')
@@ -24,4 +24,7 @@ export class NotificationInbox {
 
   @Column({ name: 'archived_at', type: 'timestamptz', nullable: true })
   archivedAt: Date;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
 }

@@ -11,12 +11,44 @@ export class SendBookingMessageDto {
   content: string;
 
   @ApiPropertyOptional({
+    description: 'Loại tin nhắn: TEXT, IMAGE, FILE, LINK, SYSTEM',
+    example: 'TEXT',
+    default: 'TEXT',
+  })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiPropertyOptional({
     description: 'Đường dẫn tệp đính kèm (nếu có)',
     example: 'https://res.cloudinary.com/demo/image/upload/sample.png',
   })
   @IsOptional()
   @IsString()
   attachmentUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'Tên gốc của tệp đính kèm',
+    example: 'De_cuong_OOP.pdf',
+  })
+  @IsOptional()
+  @IsString()
+  attachmentName?: string;
+
+  @ApiPropertyOptional({
+    description: 'Dung lượng tệp (bytes)',
+    example: 1048576,
+  })
+  @IsOptional()
+  attachmentSize?: number;
+
+  @ApiPropertyOptional({
+    description: 'MIME type của tệp',
+    example: 'application/pdf',
+  })
+  @IsOptional()
+  @IsString()
+  attachmentMime?: string;
 }
 
 export class BookingMessageResponseDto {
@@ -35,15 +67,27 @@ export class BookingMessageResponseDto {
   @ApiPropertyOptional({ description: 'Avatar người gửi' })
   senderAvatar?: string;
 
+  @ApiProperty({ description: 'Loại tin nhắn: TEXT, IMAGE, FILE, LINK, SYSTEM', default: 'TEXT' })
+  type: string;
+
   @ApiProperty({ description: 'Nội dung tin nhắn' })
   content: string;
 
-  @ApiPropertyOptional({ description: 'Đường dẫn tệp đính kèm' })
+  @ApiPropertyOptional({ description: 'URL tệp đính kèm' })
   attachmentUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Tên gốc tệp đính kèm' })
+  attachmentName?: string;
+
+  @ApiPropertyOptional({ description: 'Dung lượng tệp (bytes)' })
+  attachmentSize?: number;
+
+  @ApiPropertyOptional({ description: 'MIME type của tệp' })
+  attachmentMime?: string;
 
   @ApiProperty({ description: 'Thời gian gửi' })
   sentAt: Date;
 
-  @ApiPropertyOptional({ description: 'Thời gian đọc' })
+  @ApiPropertyOptional({ description: 'Thời gian đối phương đã đọc' })
   readAt?: Date;
 }

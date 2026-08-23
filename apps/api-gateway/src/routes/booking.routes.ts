@@ -7,12 +7,24 @@ import {
   Query,
   Req,
   Sse,
-  MessageEvent,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import type { MessageEvent } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Observable, Subject, map, filter } from 'rxjs';
 import * as jwt from 'jsonwebtoken';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiBearerAuth,
+  ApiQuery,
+  ApiConsumes,
+} from '@nestjs/swagger';
 import { BookingClient } from '../clients/booking.client';
+import { notificationEventSubject } from './notification.routes';
 
 // Global Event Stream Subject for realtime SSE events (Typing, Messages)
 const bookingEventSubject = new Subject<{ bookingId: string; senderId?: string; data: any }>();
@@ -29,10 +41,15 @@ import {
   BookingMessageResponseDto,
 } from '@app/contracts/booking';
 
+import { NotificationGateway } from '../gateways/notification.gateway';
+
 @ApiTags('Booking - Đặt lịch & Quản lý đề nghị')
 @Controller('bookings')
 export class BookingRoutes {
-  constructor(private readonly bookingClient: BookingClient) {}
+  constructor(
+    private readonly bookingClient: BookingClient,
+    private readonly notificationGateway: NotificationGateway,
+  ) {}
 
 
   private getAuthHeaders(req: any): Record<string, string> {
@@ -184,7 +201,7 @@ export class BookingRoutes {
     const result = await this.bookingClient.sendBookingMessage(id, body, this.getAuthHeaders(req));
     const userId = req.user?.id || req.user?.sub;
 
-    // Broadcast SSE realtime event
+    // Broadcast SSE realtime events (Chat + Notification)
     bookingEventSubject.next({
       bookingId: id,
       senderId: userId,
@@ -193,6 +210,21 @@ export class BookingRoutes {
         bookingId: id,
         message: result,
       },
+    });
+
+    notificationEventSubject.next({
+      data: {
+        type: 'NOTIFICATION_UPDATE',
+        bookingId: id,
+        senderId: userId,
+      },
+    });
+
+    // Broadcast realtime WebSocket / Socket.IO Notification
+    this.notificationGateway.broadcastNotificationUpdate({
+      type: 'NOTIFICATION_UPDATE',
+      bookingId: id,
+      senderId: userId,
     });
 
     return result;
@@ -235,6 +267,19 @@ export class BookingRoutes {
     return this.bookingClient.setTypingStatus(id, typing, this.getAuthHeaders(req));
   }
 
+  /** POST /bookings/:id/attachments — Tải lên tệp đính kèm hoặc hình ảnh trong phòng chat */
+  @Post(':id/attachments')
+  @ApiBearerAuth()
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Tải lên hình ảnh hoặc tệp tin đính kèm trong tin nhắn' })
+  async uploadChatAttachment(
+    @Param('id') id: string,
+    @UploadedFile() file: any,
+    @Req() req: any,
+  ) {
+    return this.bookingClient.uploadChatAttachment(id, file, this.getAuthHeaders(req));
+  }
 
   /** GET /bookings/:id/events — Server-Sent Events stream cho RTK Query onCacheEntryAdded */
   @Sse(':id/events')

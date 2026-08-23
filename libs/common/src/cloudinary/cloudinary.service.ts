@@ -65,6 +65,56 @@ export class CloudinaryService {
   }
 
   /**
+   * Upload tệp đính kèm / hình ảnh / tài liệu phòng chat lên Cloudinary
+   */
+  async uploadAttachment(
+    fileBuffer: Buffer,
+    originalName: string,
+    mimeType: string,
+    folder = 'unitimebank/chat-attachments',
+  ): Promise<{ url: string; publicId: string; size?: number }> {
+    const isImage = mimeType.startsWith('image/');
+    const cleanFileName = originalName
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
+    const publicId = `${Date.now()}_${cleanFileName}`;
+
+    return new Promise((resolve, reject) => {
+      const uploadOptions: any = {
+        folder,
+        public_id: publicId,
+        resource_type: isImage ? 'image' : 'raw',
+      };
+
+      if (isImage) {
+        uploadOptions.transformation = [
+          { quality: 'auto' },
+          { fetch_format: 'auto' },
+        ];
+      }
+
+      const uploadStream = cloudinary.uploader.upload_stream(
+        uploadOptions,
+        (error, result: UploadApiResponse) => {
+          if (error) {
+            this.logger.error('Error uploading chat attachment to Cloudinary:', error);
+            return reject(
+              new BadRequestException('Lỗi tải tệp tin lên đám mây Cloudinary'),
+            );
+          }
+          resolve({
+            url: result.secure_url || result.url,
+            publicId: result.public_id,
+            size: result.bytes,
+          });
+        },
+      );
+
+      uploadStream.end(fileBuffer);
+    });
+  }
+
+  /**
    * Xóa ảnh khỏi Cloudinary theo publicId
    */
   async deleteImage(publicId: string): Promise<void> {

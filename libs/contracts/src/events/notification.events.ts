@@ -5,6 +5,7 @@ export interface CreateNotificationEvent {
   type?: string;
   referenceId?: string;
   sourceEvent?: string;
+  avatarUrl?: string;
   createdAt?: string;
 }
 

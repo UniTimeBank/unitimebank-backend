@@ -6,9 +6,10 @@ export class BookingClient {
 
   private async request(method: string, path: string, data?: any, headers?: Record<string, string>) {
     const url = `${this.BOOKING_SERVICE_URL}${path}`;
+    const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
 
     const requestHeaders: Record<string, string> = { ...headers };
-    if (data) {
+    if (!isFormData) {
       requestHeaders['Content-Type'] = 'application/json';
     }
 
@@ -18,7 +19,7 @@ export class BookingClient {
     };
 
     if (data) {
-      options.body = JSON.stringify(data);
+      options.body = isFormData ? data : JSON.stringify(data);
     }
 
     try {
@@ -89,6 +90,23 @@ export class BookingClient {
 
   async setTypingStatus(bookingId: string, typing: boolean, headers: Record<string, string>) {
     return this.request('POST', `/bookings/${bookingId}/typing`, { typing }, headers);
+  }
+
+  async uploadChatAttachment(bookingId: string, file: any, headers: Record<string, string>) {
+    if (!file) {
+      throw new Error('Chưa chọn tệp tin đính kèm');
+    }
+
+    let cleanName = file.originalname || 'attachment';
+    try {
+      cleanName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    } catch {}
+
+    const formData = new FormData();
+    const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimetype });
+    formData.append('file', blob, cleanName);
+
+    return this.request('POST', `/bookings/${bookingId}/attachments`, formData, headers);
   }
 }
 

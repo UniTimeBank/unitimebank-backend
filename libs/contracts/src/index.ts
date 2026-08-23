@@ -4,4 +4,4 @@ export * from './post';
 export * from './events';
 export * from './wallet';
 export * from './booking';
-
+export * from './notification';

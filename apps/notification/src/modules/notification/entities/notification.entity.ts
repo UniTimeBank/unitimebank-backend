@@ -26,7 +26,10 @@ export class Notification {
   @Column({ name: 'payload_ref', nullable: true })
   payloadRef: string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @Column({ name: 'avatar_url', nullable: true })
+  avatarUrl: string;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @OneToMany(() => NotificationDelivery, (d) => d.notification)
