@@ -10,6 +10,7 @@ import { WalletClient } from './clients/wallet.client';
 import { ModerationClient } from './clients/moderation.client';
 import { NotificationClient } from './clients/notification.client';
 import { NotificationGateway } from './gateways/notification.gateway';
+import { SessionGateway } from './gateways/session.gateway';
 import { AuthRoutes } from './routes/auth.routes';
 import { UserRoutes, UserAvatarRoutes, UserFollowRoutes, UserCheckinRoutes, UserSkillRoutes, SkillCategoryRoutes, UserScheduleRoutes } from './routes/user.routes';
 import { PostMentorRoutes, PostLearnerRoutes, PostSearchRoutes } from './routes/post.routes';
@@ -60,6 +61,7 @@ import { CommonModule } from '@app/common';
     ModerationClient,
     NotificationClient,
     NotificationGateway,
+    SessionGateway,
   ],
 })
 export class ApiGatewayModule {}

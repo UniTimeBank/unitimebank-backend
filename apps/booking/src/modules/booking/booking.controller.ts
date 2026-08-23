@@ -12,6 +12,7 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { MessagePattern, EventPattern, Payload } from '@nestjs/microservices';
 import {
   ApiTags,
   ApiOperation,
@@ -205,6 +206,25 @@ export class BookingController {
     @Req() req: any,
   ) {
     return this.bookingService.uploadChatAttachment(req.user.id, id, file);
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // RABBITMQ RPC PATTERNS
+  // ════════════════════════════════════════════════════════════════
+
+  @MessagePattern('booking.findById')
+  async findByIdRmq(@Payload() data: { id: string }) {
+    return this.bookingService.findByIdInternal(data.id);
+  }
+
+  @EventPattern('booking.updateStatus')
+  async updateStatusEventRmq(@Payload() data: { id: string; status: any }) {
+    return this.bookingService.updateStatusInternal(data.id, data.status);
+  }
+
+  @MessagePattern('booking.updateStatus')
+  async updateStatusRpcRmq(@Payload() data: { id: string; status: any }) {
+    return this.bookingService.updateStatusInternal(data.id, data.status);
   }
 }
 

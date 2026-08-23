@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EscrowHold } from '../entities/escrow-hold.entity';
@@ -8,6 +8,8 @@ import { LedgerDirection, EntryType, ReferenceKind, EscrowStatus, ReleaseReason 
 
 @Injectable()
 export class WalletEscrowService {
+  private readonly logger = new Logger(WalletEscrowService.name);
+
   constructor(
     @InjectRepository(EscrowHold)
     private readonly escrowRepo: Repository<EscrowHold>,
@@ -57,37 +59,62 @@ export class WalletEscrowService {
   }
 
   /**
-   * Giải phóng tiền ký quỹ cho Mentor khi kết thúc buổi học (session.ended / booking.completed)
+   * Giải phóng tiền ký quỹ cho Mentor khi kết thúc buổi học (session.ended / booking.completed / wallet.releaseEscrow)
    */
   async releaseEscrow(data: {
     roomId?: string;
     bookingId?: string;
-    learnerId: string;
-    mentorId: string;
-    creditsTransferred: number;
+    learnerId?: string;
+    mentorId?: string;
+    creditsTransferred?: number;
   }) {
+    this.logger.log(`[releaseEscrow] Starting with data: ${JSON.stringify(data)}`);
+    let transferAmount = Number(data.creditsTransferred) || 0;
+    let learnerId = data.learnerId;
+
     // 1. Cập nhật trạng thái EscrowHold nếu có bookingId
     if (data.bookingId) {
       const escrow = await this.escrowRepo.findOne({
-        where: { bookingId: data.bookingId, status: EscrowStatus.HELD },
+        where: { bookingId: data.bookingId },
       });
       if (escrow) {
-        escrow.status = EscrowStatus.RELEASED;
-        escrow.releasedAt = new Date();
-        escrow.releaseReason = ReleaseReason.SESSION_COMPLETED;
-        await this.escrowRepo.save(escrow);
+        if (!transferAmount || transferAmount <= 0) {
+          transferAmount = Number(escrow.amount);
+        }
+        if (!learnerId) {
+          learnerId = escrow.userId;
+        }
+        if (escrow.status === EscrowStatus.HELD) {
+          escrow.status = EscrowStatus.RELEASED;
+          escrow.releasedAt = new Date();
+          escrow.releaseReason = ReleaseReason.SESSION_COMPLETED;
+          await this.escrowRepo.save(escrow);
+        }
       }
     }
 
-    // 2. Trừ escrowedBalance ở phía Learner
-    const learnerWallet = await this.walletAccountService.findOrCreateWallet(data.learnerId);
-    learnerWallet.escrowedBalance = Math.max(0, learnerWallet.escrowedBalance - data.creditsTransferred);
-    await this.walletAccountService['walletRepo'].save(learnerWallet);
+    if (!data.mentorId) {
+      this.logger.error(`[releaseEscrow] Missing mentorId for booking ${data.bookingId}`);
+      return { success: false, message: 'Thiếu mentorId' };
+    }
+
+    if (!transferAmount || transferAmount <= 0) {
+      this.logger.warn(`[releaseEscrow] No escrow amount to release for booking ${data.bookingId}`);
+      return { success: false, message: 'Không có số dư ký quỹ cần giải ngân' };
+    }
+
+    // 2. Trừ escrowedBalance ở phía Learner (nếu có learnerId)
+    if (learnerId) {
+      const learnerWallet = await this.walletAccountService.findOrCreateWallet(learnerId);
+      learnerWallet.escrowedBalance = Math.max(0, Number(learnerWallet.escrowedBalance) - transferAmount);
+      await this.walletAccountService['walletRepo'].save(learnerWallet);
+      this.logger.log(`[releaseEscrow] Deducted ${transferAmount} escrowed balance from learner ${learnerId}`);
+    }
 
     // 3. Cộng availableBalance và totalEarned ở phía Mentor
     const mentorWallet = await this.walletAccountService.findOrCreateWallet(data.mentorId);
-    mentorWallet.availableBalance += data.creditsTransferred;
-    mentorWallet.totalEarned += data.creditsTransferred;
+    mentorWallet.availableBalance = Number(mentorWallet.availableBalance) + transferAmount;
+    mentorWallet.totalEarned = Number(mentorWallet.totalEarned) + transferAmount;
     const savedMentorWallet = await this.walletAccountService['walletRepo'].save(mentorWallet);
 
     // 4. Ghi sổ cái cho Mentor nhận credit
@@ -96,13 +123,17 @@ export class WalletEscrowService {
       userId: data.mentorId,
       direction: LedgerDirection.CREDIT,
       entryType: EntryType.ESCROW_RELEASE,
-      amount: data.creditsTransferred,
+      amount: transferAmount,
       balanceAfter: savedMentorWallet.availableBalance,
       referenceId: data.bookingId || data.roomId,
       referenceKind: data.bookingId ? ReferenceKind.BOOKING : ReferenceKind.SESSION_ROOM,
     });
 
-    return { success: true, creditsTransferred: data.creditsTransferred };
+    this.logger.log(
+      `[releaseEscrow] Successfully released ${transferAmount} credits to mentor ${data.mentorId}. New availableBalance: ${savedMentorWallet.availableBalance}`,
+    );
+
+    return { success: true, creditsTransferred: transferAmount };
   }
 
   /**

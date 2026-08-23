@@ -52,6 +52,23 @@ export class NotificationService {
       kind = NotificationKind.MODERATION_RESULT;
     }
 
+    // Chống trùng lặp thông báo (Deduplication) cho các sự kiện duy nhất theo referenceId
+    if (referenceId && kind !== NotificationKind.CHAT_MESSAGE) {
+      const existing = await this.notificationRepo.findOne({
+        where: {
+          recipientId: userId,
+          kind,
+          payloadRef: referenceId,
+        },
+      });
+      if (existing) {
+        this.logger.log(
+          `[createNotification] Deduplicated duplicate notification for user [${userId}], kind [${kind}], ref [${referenceId}]`,
+        );
+        return existing;
+      }
+    }
+
     const notification = this.notificationRepo.create({
       recipientId: userId,
       kind,

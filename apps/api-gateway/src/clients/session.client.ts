@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ClientProxy, ClientProxyFactory, Transport } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 
 @Injectable()
 export class SessionClient {
+  private readonly logger = new Logger(SessionClient.name);
   private client: ClientProxy;
 
   constructor() {
@@ -17,8 +18,23 @@ export class SessionClient {
     });
   }
 
-  send<T>(pattern: string, data: any): Promise<T> {
-    return firstValueFrom(this.client.send<T>(pattern, data).pipe(timeout(10000)));
+  async send<T>(pattern: string, data: any): Promise<T> {
+    try {
+      return await firstValueFrom(this.client.send<T>(pattern, data).pipe(timeout(10000)));
+    } catch (err: any) {
+      this.logger.error(`Error sending RMQ pattern "${pattern}":`, err);
+      const message =
+        err?.message ||
+        err?.error ||
+        (typeof err === 'string' ? err : 'Lỗi xử lý phiên học trực tuyến');
+      const status =
+        typeof err?.status === 'number'
+          ? err.status
+          : typeof err?.statusCode === 'number'
+          ? err.statusCode
+          : HttpStatus.BAD_REQUEST;
+      throw new HttpException(message, status);
+    }
   }
 
   emit<T>(pattern: string, data: any) {

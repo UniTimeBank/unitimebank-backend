@@ -16,8 +16,14 @@ export class RoomChatMessage {
   @Column({ name: 'sender_id' })
   senderId: string;
 
-  @Column()
+  @Column({ nullable: true, default: '' })
   content: string;
+
+  @Column({ name: 'attachment_url', nullable: true })
+  attachmentUrl?: string;
+
+  @Column({ name: 'attachment_name', nullable: true })
+  attachmentName?: string;
 
   @CreateDateColumn({ name: 'sent_at' })
   sentAt: Date;

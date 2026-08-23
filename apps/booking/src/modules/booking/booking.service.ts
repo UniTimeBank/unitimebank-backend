@@ -690,6 +690,22 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (booking.status === BookingStatus.COMPLETED) {
+      if (booking.totalCreditEscrowed > 0) {
+        try {
+          await firstValueFrom(
+            this.walletClient
+              .send('wallet.releaseEscrow', {
+                bookingId: booking.id,
+                learnerId: booking.learnerId,
+                mentorId: booking.mentorId,
+                creditsTransferred: booking.totalCreditEscrowed,
+              })
+              .pipe(timeout(7000)),
+          );
+        } catch (err: any) {
+          this.logger.warn(`Release escrow retry for completed booking ${booking.id}:`, err);
+        }
+      }
       return booking;
     }
 
@@ -702,7 +718,7 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       try {
         await firstValueFrom(
           this.walletClient
-            .send('session.ended', {
+            .send('wallet.releaseEscrow', {
               bookingId: booking.id,
               learnerId: booking.learnerId,
               mentorId: booking.mentorId,
@@ -829,6 +845,14 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     booking.cancelledBy = userId;
     booking.cancelledAt = new Date();
     await this.bookingRepo.save(booking);
+
+    // Xóa tất cả các lịch nhắc nhở chưa bắn của booking này khi hủy
+    try {
+      await this.bookingReminderRepo.delete({ bookingId: booking.id });
+      this.logger.log(`Deleted pending reminders for cancelled booking ${booking.id}`);
+    } catch (err) {
+      this.logger.warn(`Failed to delete reminders for cancelled booking ${booking.id}:`, err);
+    }
 
     // Thông báo
     const targetUserId = userId === booking.mentorId ? booking.learnerId : booking.mentorId;
@@ -1210,9 +1234,14 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
       for (const reminder of dueReminders) {
         const booking = reminder.booking;
-        if (booking && (booking.status === BookingStatus.CONFIRMED || booking.status === BookingStatus.STARTED)) {
+        if (
+          booking &&
+          (booking.status === BookingStatus.CONFIRMED || booking.status === BookingStatus.STARTED)
+        ) {
           const isMentor = reminder.recipientId === booking.mentorId;
-          const partnerName = isMentor ? (booking.learnerName || 'Học viên') : (booking.mentorName || 'Mentor');
+          const partnerName = isMentor
+            ? booking.learnerName || 'Học viên'
+            : booking.mentorName || 'Mentor';
 
           try {
             this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
@@ -1223,10 +1252,18 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
               referenceId: booking.id,
               avatarUrl: isMentor ? booking.learnerAvatar : booking.mentorAvatar,
             });
-            this.logger.log(`Sent BOOKING_REMINDER for booking ${booking.id} to user ${reminder.recipientId}`);
+            this.logger.log(
+              `Sent BOOKING_REMINDER for booking ${booking.id} to user ${reminder.recipientId}`,
+            );
           } catch (emitErr) {
             this.logger.warn(`Failed to emit reminder for booking ${booking.id}:`, emitErr);
           }
+        } else {
+          this.logger.log(
+            `Skipping reminder for booking ${booking?.id || reminder.bookingId} due to status: ${
+              booking?.status
+            }`,
+          );
         }
 
         reminder.sentAt = new Date();
@@ -1235,5 +1272,16 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.error('Error during scheduled checkAndSendBookingReminders sweep:', err);
     }
+  }
+
+  async findByIdInternal(id: string): Promise<Booking | null> {
+    return this.bookingRepo.findOne({ where: { id } });
+  }
+
+  async updateStatusInternal(id: string, status: BookingStatus): Promise<Booking | null> {
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) return null;
+    booking.status = status;
+    return this.bookingRepo.save(booking);
   }
 }
