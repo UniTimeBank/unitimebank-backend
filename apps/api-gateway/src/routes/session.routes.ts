@@ -107,6 +107,15 @@ export class SessionRoutes {
     return this.sessionClient.send('session.leaveGroup', { userId, roomId });
   }
 
+  @Post('group/:roomId/close')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mentor (Host) đóng phòng học nhóm' })
+  async closeGroupRoom(@Param('roomId') roomId: string, @Req() req: any) {
+    const userId = req.user.id;
+    return this.sessionClient.send('session.closeGroup', { userId, roomId });
+  }
+
   @Get('group/active')
   @ApiOperation({ summary: 'Lấy danh sách các phòng học nhóm đang hoạt động' })
   @ApiQuery({ name: 'category', required: false })
@@ -114,6 +123,17 @@ export class SessionRoutes {
   @ApiQuery({ name: 'page', required: false, type: Number })
   async getActiveGroupRooms(@Query() query: GetActiveGroupRoomsQueryDto) {
     return this.sessionClient.send('session.getActiveGroupRooms', { query });
+  }
+
+  @Get('group/history')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy danh sách lịch sử phòng học nhóm đã kết thúc' })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  async getGroupRoomsHistory(@Query() query: any, @Req() req: any) {
+    const userId = req.user.id;
+    return this.sessionClient.send('session.getGroupRoomsHistory', { userId, query });
   }
 
   // ════════════════════════════════════════════════════════════════

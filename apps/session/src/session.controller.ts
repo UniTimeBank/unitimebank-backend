@@ -101,6 +101,19 @@ export class SessionController {
     }
   }
 
+  @MessagePattern('session.closeGroup')
+  async closeGroup(@Payload() data: { userId: string; roomId: string }) {
+    try {
+      return await this.sessionService.closeGroupRoom(data.userId, data.roomId);
+    } catch (err: any) {
+      this.logger.error(`[session.closeGroup] Error:`, err?.stack || err);
+      throw new RpcException({
+        status: err?.status || err?.statusCode || 400,
+        message: err?.message || 'Không thể đóng phòng học nhóm',
+      });
+    }
+  }
+
   @MessagePattern('session.getActiveGroupRooms')
   async getActiveGroupRooms(@Payload() data: { query: GetActiveGroupRoomsQueryDto }) {
     try {
@@ -110,6 +123,19 @@ export class SessionController {
       throw new RpcException({
         status: err?.status || err?.statusCode || 400,
         message: err?.message || 'Không thể lấy danh sách phòng nhóm',
+      });
+    }
+  }
+
+  @MessagePattern('session.getGroupRoomsHistory')
+  async getGroupRoomsHistory(@Payload() data: { userId: string; query?: any }) {
+    try {
+      return await this.sessionService.getGroupRoomsHistory(data.userId, data.query);
+    } catch (err: any) {
+      this.logger.error(`[session.getGroupRoomsHistory] Error:`, err?.stack || err);
+      throw new RpcException({
+        status: err?.status || err?.statusCode || 400,
+        message: err?.message || 'Không thể lấy lịch sử phòng nhóm',
       });
     }
   }

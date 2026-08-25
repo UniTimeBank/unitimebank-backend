@@ -573,6 +573,31 @@ export class SessionService {
   }
 
   /**
+   * POST /rooms/group/:roomId/close — Mentor (Host) đóng phòng học nhóm
+   */
+  async closeGroupRoom(userId: string, roomId: string) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room) {
+      throw new NotFoundException('Không tìm thấy phòng học nhóm.');
+    }
+
+    if (room.mentorId !== userId) {
+      throw new ForbiddenException('Chỉ chủ phòng (Mentor) mới có quyền đóng phòng học này.');
+    }
+
+    room.status = RoomStatus.COMPLETED;
+    room.closedAt = new Date();
+    await this.roomRepo.save(room);
+
+    this.logger.log(`[closeGroupRoom] Room ${roomId} closed by mentor ${userId}`);
+    return {
+      roomId,
+      status: RoomStatus.COMPLETED,
+      closedAt: room.closedAt,
+    };
+  }
+
+  /**
    * GET /rooms/group/active — Lấy danh sách các phòng học nhóm đang mở
    */
   async getActiveGroupRooms(query: GetActiveGroupRoomsQueryDto) {
@@ -600,6 +625,51 @@ export class SessionService {
         currentParticipants: activeCount,
         openedAt: r.openedAt,
         status: r.status,
+      };
+    });
+
+    return {
+      rooms: enriched,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  /**
+   * GET /rooms/group/history — Lấy danh sách lịch sử các phòng học nhóm đã kết thúc
+   */
+  async getGroupRoomsHistory(userId: string, query?: any) {
+    const qb = this.roomRepo
+      .createQueryBuilder('room')
+      .leftJoinAndSelect('room.participants', 'participant')
+      .where('room.roomType = :type', { type: RoomType.GROUP })
+      .andWhere('room.status = :status', { status: RoomStatus.COMPLETED })
+      .andWhere('(room.mentorId = :userId OR participant.userId = :userId)', { userId })
+      .orderBy('room.closedAt', 'DESC');
+
+    const limit = query?.limit || 20;
+    const page = query?.page || 1;
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [items, total] = await qb.getManyAndCount();
+
+    const enriched = items.map((r) => {
+      const totalParticipants = (r.participants || []).length;
+      const durationMinutes = r.openedAt && r.closedAt
+        ? Math.max(1, Math.round((new Date(r.closedAt).getTime() - new Date(r.openedAt).getTime()) / (60 * 1000)))
+        : 0;
+
+      return {
+        roomId: r.id,
+        mentorId: r.mentorId,
+        title: 'Phòng học nhóm trực tuyến',
+        totalParticipants,
+        openedAt: r.openedAt,
+        closedAt: r.closedAt,
+        durationMinutes,
+        status: r.status,
+        isHost: r.mentorId === userId,
       };
     });
 
