@@ -20,7 +20,10 @@ export class ReportEvidence {
   @Column({ name: 'cloudinary_public_id', nullable: true })
   cloudinaryPublicId: string;
 
-  @Column({ type: 'enum', enum: EvidenceKind })
+  @Column({ name: 'file_url', nullable: true })
+  fileUrl: string;
+
+  @Column({ type: 'enum', enum: EvidenceKind, default: EvidenceKind.IMAGE })
   kind: EvidenceKind;
 
   @Column({ name: 'size_bytes', default: 0 })
@@ -29,3 +32,4 @@ export class ReportEvidence {
   @CreateDateColumn({ name: 'uploaded_at' })
   uploadedAt: Date;
 }
+

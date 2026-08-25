@@ -24,7 +24,7 @@ export class ViolationReport {
   category: ReportCategory;
 
   @Column({ nullable: true })
-  description: string;
+  description?: string;
 
   @Column({ type: 'enum', enum: ReportStatus, default: ReportStatus.OPEN })
   status: ReportStatus;
@@ -33,7 +33,7 @@ export class ViolationReport {
   submittedAt: Date;
 
   @Column({ name: 'closed_at', type: 'timestamptz', nullable: true })
-  closedAt: Date;
+  closedAt?: Date;
 
   @OneToMany(() => ReportEvidence, (e) => e.report)
   evidences: ReportEvidence[];

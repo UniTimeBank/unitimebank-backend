@@ -1,8 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import { ModerationController } from './moderation.controller';
-import { ModerationService } from './moderation.service';
+import { ModerationFeatureModule } from './modules/moderation';
 import {
   TrustScore, TrustScoreChange, PostSessionRating, ViolationReport,
   ReportEvidence, ModerationDecision, AccountModerationAction, SystemStats
@@ -23,8 +22,8 @@ import {
       ssl: process.env.DB_SSL === 'true',
       extra: process.env.DB_SSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {},
     }),
+    ModerationFeatureModule,
   ],
-  controllers: [ModerationController],
-  providers: [ModerationService],
 })
 export class ModerationModule {}
+

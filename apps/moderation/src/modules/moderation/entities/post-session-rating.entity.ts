@@ -8,7 +8,7 @@ export class PostSessionRating {
   @Column({ name: 'booking_id' })
   bookingId: string;
 
-  @Column({ name: 'session_id' })
+  @Column({ name: 'session_id', nullable: true })
   sessionId: string;
 
   @Column({ name: 'learner_id' })
@@ -21,7 +21,13 @@ export class PostSessionRating {
   stars: number;
 
   @Column({ nullable: true })
-  comment: string;
+  comment?: string;
+
+  @Column({ name: 'reviewer_name', nullable: true })
+  reviewerName?: string;
+
+  @Column({ name: 'reviewer_avatar', nullable: true })
+  reviewerAvatar?: string;
 
   @CreateDateColumn({ name: 'submitted_at' })
   submittedAt: Date;

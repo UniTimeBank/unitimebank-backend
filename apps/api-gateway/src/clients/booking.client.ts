@@ -76,6 +76,15 @@ export class BookingClient {
     return this.request('GET', path, undefined, headers);
   }
 
+  async getMentorBusySlots(mentorId: string, from?: string, to?: string, headers?: Record<string, string>) {
+    const params = new URLSearchParams();
+    if (from) params.append('from', from);
+    if (to) params.append('to', to);
+    const qs = params.toString();
+    const path = `/bookings/mentor/${mentorId}/busy-slots${qs ? `?${qs}` : ''}`;
+    return this.request('GET', path, undefined, headers);
+  }
+
   async getBookingById(bookingId: string, headers: Record<string, string>) {
     return this.request('GET', `/bookings/${bookingId}`, undefined, headers);
   }

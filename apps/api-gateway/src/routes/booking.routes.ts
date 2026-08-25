@@ -159,6 +159,20 @@ export class BookingRoutes {
     return this.bookingClient.getMyBookings(params.toString(), this.getAuthHeaders(req));
   }
 
+  /** GET /bookings/mentor/:mentorId/busy-slots — Lấy danh sách các khung giờ đã có lịch của Mentor */
+  @Get('mentor/:mentorId/busy-slots')
+  @ApiOperation({ summary: 'Lấy danh sách các khung giờ đã có lịch (CONFIRMED / STARTED) của Mentor' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  async getMentorBusySlots(
+    @Param('mentorId') mentorId: string,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Req() req: any,
+  ) {
+    return this.bookingClient.getMentorBusySlots(mentorId, from, to, this.getAuthHeaders(req));
+  }
+
   /** GET /bookings/:bookingId — Lấy chi tiết 1 Booking */
   @Get(':id')
   @ApiBearerAuth()

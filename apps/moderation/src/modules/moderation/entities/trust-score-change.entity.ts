@@ -10,8 +10,11 @@ export class TrustScoreChange {
   @Column({ name: 'user_id' })
   userId: string;
 
-  @ManyToOne(() => TrustScore, (ts) => ts.scoreChanges, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
+  @ManyToOne(() => TrustScore, (ts) => ts.scoreChanges, {
+    createForeignKeyConstraints: false,
+    nullable: true,
+  })
+  @JoinColumn({ name: 'user_id', referencedColumnName: 'userId' })
   trustScore: TrustScore;
 
   @Column()

@@ -217,24 +217,54 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Bạn không thể tự đặt lịch học với chính mình');
     }
 
-    // Kiểm tra chống spam: Không cho phép đặt lịch nhiều lần cho cùng 1 bài đăng nếu đã có yêu cầu đang xử lý / đã xác nhận
-    const existingActiveBooking = await this.bookingRepo.findOne({
-      where: {
-        sourcePostId: dto.mentorPostId,
-        learnerId: learnerId,
-        status: In([
-          BookingStatus.PENDING_MENTOR_APPROVAL,
-          BookingStatus.CONFIRMED,
-          BookingStatus.STARTED,
-        ]),
-      },
-    });
+    const start = new Date(dto.scheduledStart);
+    const end = new Date(dto.scheduledEnd);
+    const startMs = start.getTime();
+    const endMs = end.getTime();
 
-    if (existingActiveBooking) {
-      if (existingActiveBooking.status === BookingStatus.PENDING_MENTOR_APPROVAL) {
-        throw new BadRequestException('Bạn đã gửi yêu cầu đặt lịch cho bài đăng này và đang chờ gia sư phản hồi');
-      }
-      throw new BadRequestException('Bạn đã có lịch học đang hoạt động cho bài đăng này');
+    if (isNaN(startMs) || isNaN(endMs) || startMs >= endMs) {
+      throw new BadRequestException('Thời gian bắt đầu và kết thúc buổi học không hợp lệ');
+    }
+
+    // 1.1 Chống gửi trùng yêu cầu: Kiểm tra Learner đã có yêu cầu PENDING trùng khung giờ này cho bài đăng chưa
+    const duplicatePending = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.sourcePostId = :postId', { postId: dto.mentorPostId })
+      .andWhere('b.learnerId = :learnerId', { learnerId })
+      .andWhere('b.status = :pendingStatus', { pendingStatus: BookingStatus.PENDING_MENTOR_APPROVAL })
+      .andWhere('b.scheduledStart < :end AND b.scheduledEnd > :start', { start, end })
+      .getOne();
+
+    if (duplicatePending) {
+      throw new BadRequestException('Bạn đã gửi một yêu cầu đặt lịch trong khung giờ này và đang chờ gia sư phản hồi');
+    }
+
+    // 1.2 Kiểm tra trùng lịch của chính Học viên (với các buổi học đã xác nhận hoặc đang diễn ra)
+    const learnerConflict = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.status IN (:...activeStatuses)', {
+        activeStatuses: [BookingStatus.CONFIRMED, BookingStatus.STARTED],
+      })
+      .andWhere('(b.mentorId = :learnerId OR b.learnerId = :learnerId)', { learnerId })
+      .andWhere('b.scheduledStart < :end AND b.scheduledEnd > :start', { start, end })
+      .getOne();
+
+    if (learnerConflict) {
+      throw new BadRequestException(`Bạn đã có một lịch học khác ("${learnerConflict.title}") trong khung giờ này`);
+    }
+
+    // 1.3 Kiểm tra Mentor đã có lịch học được xác nhận hoặc đang diễn ra trong khung giờ này chưa
+    const mentorConflict = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.status IN (:...activeStatuses)', {
+        activeStatuses: [BookingStatus.CONFIRMED, BookingStatus.STARTED],
+      })
+      .andWhere('(b.mentorId = :mentorId OR b.learnerId = :mentorId)', { mentorId: mentorPost.mentorId })
+      .andWhere('b.scheduledStart < :end AND b.scheduledEnd > :start', { start, end })
+      .getOne();
+
+    if (mentorConflict) {
+      throw new BadRequestException('Gia sư đã có lịch học được xác nhận trong khung giờ này, vui lòng chọn khung giờ khác');
     }
 
     // Lấy thông tin profile học viên
@@ -244,8 +274,6 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
         : await this.getUserSnapshot(learnerId);
 
     // 2. Tạo bản ghi Booking ở trạng thái CHỜ MENTOR DUYỆT
-    const startMs = new Date(dto.scheduledStart).getTime();
-    const endMs = new Date(dto.scheduledEnd).getTime();
     const calcMinutes = Math.max(15, Math.round((endMs - startMs) / 60000));
     const duration = dto.durationMinutes || (isNaN(calcMinutes) ? 60 : calcMinutes);
 
@@ -260,8 +288,8 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       learnerAvatar: learnerSnap.avatar || '',
       title: mentorPost.title || 'Buổi học 1:1',
       note: dto.note || dto.message || '',
-      scheduledStart: new Date(dto.scheduledStart),
-      scheduledEnd: new Date(dto.scheduledEnd),
+      scheduledStart: start,
+      scheduledEnd: end,
       durationMinutes: duration,
       totalCreditEscrowed: duration, // 1 phút = 1 Credit
       status: BookingStatus.PENDING_MENTOR_APPROVAL,
@@ -334,24 +362,51 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Bạn không thể tự gửi đề nghị dạy cho bài yêu cầu của chính mình');
     }
 
-    // Kiểm tra chống spam: Không cho phép gửi đề nghị dạy nhiều lần cho cùng 1 bài yêu cầu nếu đang chờ phản hồi hoặc đã xác nhận
-    const existingActiveOffer = await this.bookingRepo.findOne({
+    const start = new Date(dto.scheduledStart);
+    const end = new Date(dto.scheduledEnd);
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+
+    if (isNaN(startMs) || isNaN(endMs) || startMs >= endMs) {
+      throw new BadRequestException('Thời gian bắt đầu và kết thúc buổi học không hợp lệ');
+    }
+
+    // 1.1 Kiểm tra xem bài yêu cầu này đã được xác nhận với người dạy nào chưa
+    const requestAlreadyConfirmed = await this.bookingRepo.findOne({
+      where: {
+        sourcePostId: dto.learnerRequestId,
+        status: In([BookingStatus.CONFIRMED, BookingStatus.STARTED, BookingStatus.COMPLETED]),
+      },
+    });
+    if (requestAlreadyConfirmed) {
+      throw new BadRequestException('Bài yêu cầu này đã được xác nhận với một người dạy khác');
+    }
+
+    // 1.2 Kiểm tra chống spam: Không cho phép gửi đề nghị dạy nhiều lần nếu đang có đề nghị chờ duyệt cho bài này
+    const duplicatePendingOffer = await this.bookingRepo.findOne({
       where: {
         sourcePostId: dto.learnerRequestId,
         mentorId: mentorId,
-        status: In([
-          BookingStatus.PENDING_LEARNER_APPROVAL,
-          BookingStatus.CONFIRMED,
-          BookingStatus.STARTED,
-        ]),
+        status: BookingStatus.PENDING_LEARNER_APPROVAL,
       },
     });
 
-    if (existingActiveOffer) {
-      if (existingActiveOffer.status === BookingStatus.PENDING_LEARNER_APPROVAL) {
-        throw new BadRequestException('Bạn đã gửi đề nghị dạy cho bài yêu cầu này và đang chờ học viên phản hồi');
-      }
-      throw new BadRequestException('Bạn đã có lịch học đang hoạt động cho bài yêu cầu này');
+    if (duplicatePendingOffer) {
+      throw new BadRequestException('Bạn đã gửi đề nghị dạy cho bài yêu cầu này và đang chờ học viên phản hồi');
+    }
+
+    // 1.3 Kiểm tra trùng lịch của chính Mentor trong khung giờ đề xuất
+    const mentorConflict = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.status IN (:...activeStatuses)', {
+        activeStatuses: [BookingStatus.CONFIRMED, BookingStatus.STARTED],
+      })
+      .andWhere('(b.mentorId = :mentorId OR b.learnerId = :mentorId)', { mentorId })
+      .andWhere('b.scheduledStart < :end AND b.scheduledEnd > :start', { start, end })
+      .getOne();
+
+    if (mentorConflict) {
+      throw new BadRequestException(`Bạn đã có một lịch học khác ("${mentorConflict.title}") trong khung giờ này`);
     }
 
     // Lấy thông tin profile người dạy
@@ -361,8 +416,6 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
         : await this.getUserSnapshot(mentorId);
 
     // 2. Tạo bản ghi Booking ở trạng thái CHỜ LEARNER DUYỆT
-    const startMs = new Date(dto.scheduledStart).getTime();
-    const endMs = new Date(dto.scheduledEnd).getTime();
     const calcMinutes = Math.max(15, Math.round((endMs - startMs) / 60000));
     const duration = dto.durationMinutes || learnerReq.expectedDurationMinutes || (isNaN(calcMinutes) ? 60 : calcMinutes);
 
@@ -377,8 +430,8 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       learnerAvatar: learnerReq.learnerAvatar || '',
       title: learnerReq.skillNeeded || 'Hướng dẫn môn học',
       note: dto.note || dto.message || '',
-      scheduledStart: new Date(dto.scheduledStart),
-      scheduledEnd: new Date(dto.scheduledEnd),
+      scheduledStart: start,
+      scheduledEnd: end,
       durationMinutes: duration,
       totalCreditEscrowed: duration,
       status: BookingStatus.PENDING_LEARNER_APPROVAL,
@@ -781,8 +834,23 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Bạn không có quyền hủy booking này');
     }
 
-    if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) {
+    if (
+      booking.status === BookingStatus.COMPLETED ||
+      booking.status === BookingStatus.CANCELLED ||
+      booking.status === BookingStatus.REJECTED ||
+      booking.status === BookingStatus.EXPIRED
+    ) {
       throw new BadRequestException(`Booking đang ở trạng thái "${booking.status}", không thể hủy`);
+    }
+
+    if (booking.status === BookingStatus.STARTED) {
+      throw new BadRequestException('Buổi học đang diễn ra, không thể hủy.');
+    }
+
+    const now = Date.now();
+    const startTimeMs = new Date(booking.scheduledStart).getTime();
+    if (booking.status === BookingStatus.CONFIRMED && now >= startTimeMs) {
+      throw new BadRequestException('Buổi học đã đến giờ hoặc đang diễn ra, không thể hủy.');
     }
 
     const wasConfirmed = booking.status === BookingStatus.CONFIRMED;
@@ -1283,5 +1351,58 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
     if (!booking) return null;
     booking.status = status;
     return this.bookingRepo.save(booking);
+  }
+
+  /**
+   * Lấy danh sách các khung giờ đã có lịch (CONFIRMED / STARTED) của Mentor trong khoảng ngày
+   */
+  async getBusySlots(mentorId: string, fromStr?: string, toStr?: string) {
+    const qb = this.bookingRepo.createQueryBuilder('b')
+      .where('(b.mentorId = :mentorId OR b.learnerId = :mentorId)', { mentorId })
+      .andWhere('b.status IN (:...activeStatuses)', {
+        activeStatuses: [BookingStatus.CONFIRMED, BookingStatus.STARTED],
+      });
+
+    if (fromStr) {
+      const fromDate = new Date(`${fromStr}T00:00:00.000Z`);
+      if (!isNaN(fromDate.getTime())) {
+        qb.andWhere('b.scheduledEnd >= :fromDate', { fromDate });
+      }
+    }
+
+    if (toStr) {
+      const toDate = new Date(`${toStr}T23:59:59.999Z`);
+      if (!isNaN(toDate.getTime())) {
+        qb.andWhere('b.scheduledStart <= :toDate', { toDate });
+      }
+    }
+
+    const bookings = await qb
+      .select(['b.id', 'b.scheduledStart', 'b.scheduledEnd', 'b.title', 'b.status', 'b.sourcePostId'])
+      .orderBy('b.scheduledStart', 'ASC')
+      .getMany();
+
+    const data = bookings.map((b) => {
+      const start = new Date(b.scheduledStart);
+      const end = new Date(b.scheduledEnd);
+
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const date = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
+      const startTime = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
+      const endTime = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
+
+      return {
+        id: b.id,
+        date,
+        startTime,
+        endTime,
+        scheduledStart: b.scheduledStart,
+        scheduledEnd: b.scheduledEnd,
+        status: b.status,
+        sourcePostId: b.sourcePostId,
+      };
+    });
+
+    return { data };
   }
 }

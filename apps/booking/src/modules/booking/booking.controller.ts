@@ -141,6 +141,19 @@ export class BookingController {
     return this.bookingService.getMyBookings(req.user.id, query);
   }
 
+  /** GET /bookings/mentor/:mentorId/busy-slots — Lấy danh sách khung giờ đã có lịch của Mentor */
+  @Get('mentor/:mentorId/busy-slots')
+  @ApiOperation({ summary: 'Lấy danh sách các khung giờ đã có lịch của Mentor (CONFIRMED / STARTED)' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  async getMentorBusySlots(
+    @Param('mentorId') mentorId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.bookingService.getBusySlots(mentorId, from, to);
+  }
+
   /** GET /bookings/:bookingId — Chi tiết 1 Booking */
   @Get(':id')
   @UseGuards(JwtAuthGuard)

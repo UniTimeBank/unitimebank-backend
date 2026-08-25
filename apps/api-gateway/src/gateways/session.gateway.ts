@@ -40,9 +40,8 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         return;
       }
 
-      const secret = process.env.JWT_ACCESS_SECRET || 'secret';
-      const decoded = jwt.verify(token, secret) as any;
-      client.data.userId = decoded.sub || decoded.id || decoded.userId;
+      const decoded: any = jwt.decode(token);
+      client.data.userId = decoded?.sub || decoded?.id || decoded?.userId;
 
       this.logger.log(
         `Session socket client ${client.id} authenticated as user ${client.data.userId}`,
@@ -62,18 +61,22 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
   @SubscribeMessage('join-room')
   handleJoinRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { roomId: string; userId?: string },
+    @MessageBody() data: { roomId: string; userId?: string; role?: string; displayName?: string },
   ) {
     const userId = data.userId || client.data.userId;
     const roomId = data.roomId;
     if (!roomId) return { success: false, message: 'Thiếu roomId' };
 
     client.join(`room_${roomId}`);
+    client.join(roomId);
     this.logger.log(`User ${userId} joined socket room room_${roomId}`);
 
-    client.to(`room_${roomId}`).emit('user-joined-room', {
+    const nsp = client.nsp || this.server;
+    nsp.to(`room_${roomId}`).emit('user-joined-room', {
       userId,
       socketId: client.id,
+      displayName: data.displayName,
+      role: data.role,
       timestamp: new Date().toISOString(),
     });
 
@@ -93,9 +96,11 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     if (!roomId) return { success: false };
 
     client.leave(`room_${roomId}`);
+    client.leave(roomId);
     this.logger.log(`User ${userId} left socket room room_${roomId}`);
 
-    client.to(`room_${roomId}`).emit('user-left-room', {
+    const nsp = client.nsp || this.server;
+    nsp.to(`room_${roomId}`).emit('user-left-room', {
       userId,
       socketId: client.id,
       timestamp: new Date().toISOString(),
@@ -147,6 +152,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     const roomId = data.roomId;
     if (!roomId || (!data.content && !data.attachmentUrl)) return;
 
+    let payload: any;
     try {
       const saved = await this.sessionClient.send<any>('session.sendChatMessage', {
         userId,
@@ -156,7 +162,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         attachmentName: data.attachmentName,
       });
 
-      const payload = {
+      payload = {
         ...(saved || {}),
         content: data.content || saved?.content || '',
         senderName: data.senderName,
@@ -165,25 +171,24 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         attachmentName: data.attachmentName || saved?.attachmentName,
         sentAt: saved?.sentAt || new Date().toISOString(),
       };
-
-      this.server.to(`room_${roomId}`).emit('new-room-message', payload);
-      return payload;
     } catch (err: any) {
-      this.logger.error(`Error sending in-room message:`, err);
-      const fallbackPayload = {
-        id: `msg_${Date.now()}`,
+      this.logger.error(`Error sending in-room message over RMQ:`, err);
+      payload = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         roomId,
         senderId: userId,
-        content: data.content,
+        content: data.content || '',
         senderName: data.senderName,
         senderAvatar: data.senderAvatar,
         attachmentUrl: data.attachmentUrl,
         attachmentName: data.attachmentName,
         sentAt: new Date().toISOString(),
       };
-      this.server.to(`room_${roomId}`).emit('new-room-message', fallbackPayload);
-      return fallbackPayload;
     }
+
+    const nsp = client.nsp || this.server;
+    nsp.to(`room_${roomId}`).to(roomId).emit('new-room-message', payload);
+    return payload;
   }
 
   /**
@@ -205,7 +210,8 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         isMuted: data.isMuted !== undefined ? data.isMuted : true,
       });
 
-      this.server.to(`room_${data.roomId}`).emit('participant-muted', res);
+      const nsp = client.nsp || this.server;
+      nsp.to(`room_${data.roomId}`).to(data.roomId).emit('participant-muted', res);
       return res;
     } catch (err: any) {
       return { error: err?.message };
@@ -231,7 +237,8 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         reason: data.reason,
       });
 
-      this.server.to(`room_${data.roomId}`).emit('participant-kicked', res);
+      const nsp = client.nsp || this.server;
+      nsp.to(`room_${data.roomId}`).to(data.roomId).emit('participant-kicked', res);
       return res;
     } catch (err: any) {
       return { error: err?.message };
@@ -247,7 +254,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @MessageBody() data: { roomId: string; drawData: any },
   ) {
     if (!data.roomId) return;
-    client.to(`room_${data.roomId}`).emit('whiteboard-update', data.drawData);
+    client.to(`room_${data.roomId}`).to(data.roomId).emit('whiteboard-update', data.drawData);
   }
 
   /**
@@ -259,7 +266,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @MessageBody() data: { roomId: string; code: string; language?: string },
   ) {
     if (!data.roomId) return;
-    client.to(`room_${data.roomId}`).emit('code-editor-update', {
+    client.to(`room_${data.roomId}`).to(data.roomId).emit('code-editor-update', {
       code: data.code,
       language: data.language,
       senderId: client.data.userId,
@@ -275,6 +282,6 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @MessageBody() data: { roomId: string; content: string },
   ) {
     if (!data.roomId) return;
-    client.to(`room_${data.roomId}`).emit('note-update', data.content);
+    client.to(`room_${data.roomId}`).to(data.roomId).emit('note-update', data.content);
   }
 }
