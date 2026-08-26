@@ -185,9 +185,9 @@ export class SessionController {
   }
 
   @MessagePattern('session.getChatMessages')
-  async getChatMessages(@Payload() data: { roomId: string }) {
+  async getChatMessages(@Payload() data: { userId: string; roomId: string }) {
     try {
-      return await this.sessionService.getRoomChatMessages(data.roomId);
+      return await this.sessionService.getRoomChatMessages(data.userId, data.roomId);
     } catch (err: any) {
       this.logger.error(`[session.getChatMessages] Error:`, err?.stack || err);
       throw new RpcException({
@@ -205,8 +205,10 @@ export class SessionController {
       roomId: string;
       message?: string;
       content?: string;
-      attachmentUrl?: string;
-      attachmentName?: string;
+        attachmentUrl?: string;
+        attachmentName?: string;
+        attachmentPublicId?: string;
+        attachmentResourceType?: 'image' | 'raw' | 'video';
     },
   ) {
     try {
@@ -216,6 +218,8 @@ export class SessionController {
         data.content || data.message || '',
         data.attachmentUrl,
         data.attachmentName,
+        data.attachmentPublicId,
+        data.attachmentResourceType,
       );
     } catch (err: any) {
       this.logger.error(`[session.sendChatMessage] Error:`, err?.stack || err);

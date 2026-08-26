@@ -1129,14 +1129,33 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    let verifiedAttachment:
+      | { url: string; bytes: number; publicId: string; resourceType: string }
+      | undefined;
+    if (dto.attachmentUrl || dto.attachmentPublicId) {
+      if (!dto.attachmentPublicId || !dto.attachmentResourceType) {
+        throw new BadRequestException('Thiếu metadata xác minh direct upload');
+      }
+      verifiedAttachment = await this.cloudinaryService.verifyDirectUpload({
+        publicId: dto.attachmentPublicId,
+        resourceType: dto.attachmentResourceType,
+        expectedPublicIdPrefix: `unitimebank/chat-attachments/${bookingId}/${userId}_`,
+        maxBytes: 10 * 1024 * 1024,
+        allowedFormats:
+          dto.attachmentResourceType === 'image'
+            ? ['jpg', 'jpeg', 'png', 'webp', 'gif']
+            : undefined,
+      });
+    }
+
     const newMsg = this.bookingMessageRepo.create({
       bookingId,
       senderId: userId,
       type: msgType,
       content: dto.content,
-      attachmentUrl: dto.attachmentUrl,
+      attachmentUrl: verifiedAttachment?.url,
       attachmentName: dto.attachmentName,
-      attachmentSize: dto.attachmentSize,
+      attachmentSize: verifiedAttachment?.bytes,
       attachmentMime: dto.attachmentMime,
     });
 
@@ -1172,79 +1191,6 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       ...saved,
       senderName: isSenderMentor ? booking.mentorName : booking.learnerName,
       senderAvatar: isSenderMentor ? booking.mentorAvatar : booking.learnerAvatar,
-    };
-  }
-
-  /**
-   * Upload tệp đính kèm / hình ảnh cho phòng chat của buổi học
-   */
-  async uploadChatAttachment(
-    userId: string,
-    bookingId: string,
-    file: Express.Multer.File,
-  ): Promise<{
-    url: string;
-    name: string;
-    size: number;
-    mime: string;
-    type: string;
-  }> {
-    const booking = await this.bookingRepo.findOne({ where: { id: bookingId } });
-    if (!booking) {
-      throw new NotFoundException('Không tìm thấy bản ghi đặt lịch');
-    }
-
-    if (booking.mentorId !== userId && booking.learnerId !== userId) {
-      throw new ForbiddenException('Bạn không có quyền gửi tệp trong buổi học này');
-    }
-
-    if (!file || !file.buffer) {
-      throw new BadRequestException('Vui lòng chọn tệp tin hợp lệ để tải lên');
-    }
-
-    // Security check: Block dangerous executable file extensions
-    const forbiddenExtensions = [
-      '.exe',
-      '.bat',
-      '.cmd',
-      '.sh',
-      '.vbs',
-      '.apk',
-      '.msi',
-      '.scr',
-      '.pif',
-    ];
-    const fileExt = (file.originalname || '').toLowerCase();
-    if (forbiddenExtensions.some((ext) => fileExt.endsWith(ext))) {
-      throw new BadRequestException(
-        'Định dạng tệp tin này không được phép gửi vì lý do an toàn bảo mật.',
-      );
-    }
-
-    const maxFileSize = 10 * 1024 * 1024; // 10MB (Giới hạn gói Cloudinary Free)
-    if (file.size > maxFileSize) {
-      throw new BadRequestException('Dung lượng tệp vượt quá giới hạn cho phép (tối đa 10MB).');
-    }
-
-    let cleanOriginalName = file.originalname;
-    try {
-      cleanOriginalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    } catch {}
-
-    const result = await this.cloudinaryService.uploadAttachment(
-      file.buffer,
-      cleanOriginalName,
-      file.mimetype,
-      'unitimebank/chat-attachments',
-    );
-
-    const isImage = file.mimetype.startsWith('image/');
-    return {
-      url: result.url,
-      name: cleanOriginalName,
-      size: file.size,
-      mime: file.mimetype,
-      type: isImage ? 'IMAGE' : 'FILE',
     };
   }
 

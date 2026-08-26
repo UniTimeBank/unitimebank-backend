@@ -6,13 +6,7 @@ import {
   Param,
   Query,
   Req,
-  Sse,
-  UseInterceptors,
-  UploadedFile,
 } from '@nestjs/common';
-import type { MessageEvent } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { Observable, Subject, map, filter } from 'rxjs';
 import * as jwt from 'jsonwebtoken';
 import {
   ApiTags,
@@ -21,14 +15,9 @@ import {
   ApiBody,
   ApiBearerAuth,
   ApiQuery,
-  ApiConsumes,
 } from '@nestjs/swagger';
 import { BookingClient } from '../clients/booking.client';
 import { notificationEventSubject } from './notification.routes';
-
-// Global Event Stream Subject for realtime SSE events (Typing, Messages)
-const bookingEventSubject = new Subject<{ bookingId: string; senderId?: string; data: any }>();
-
 
 import {
   CreateMentorPostBookingDto,
@@ -42,6 +31,7 @@ import {
 } from '@app/contracts/booking';
 
 import { NotificationGateway } from '../gateways/notification.gateway';
+import { BookingGateway } from '../gateways/booking.gateway';
 
 @ApiTags('Booking - Đặt lịch & Quản lý đề nghị')
 @Controller('bookings')
@@ -49,6 +39,7 @@ export class BookingRoutes {
   constructor(
     private readonly bookingClient: BookingClient,
     private readonly notificationGateway: NotificationGateway,
+    private readonly bookingGateway: BookingGateway,
   ) {}
 
 
@@ -201,12 +192,6 @@ export class BookingRoutes {
   @ApiOperation({ summary: 'Gửi tin nhắn trao đổi trong buổi học' })
   @ApiBody({ type: SendBookingMessageDto })
   @ApiResponse({ status: 201, description: 'Gửi tin nhắn thành công', type: BookingMessageResponseDto })
-  /** POST /bookings/:bookingId/messages — Gửi tin nhắn */
-  @Post(':id/messages')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Gửi tin nhắn trao đổi trong buổi học' })
-  @ApiBody({ type: SendBookingMessageDto })
-  @ApiResponse({ status: 201, description: 'Gửi tin nhắn thành công', type: BookingMessageResponseDto })
   async sendBookingMessage(
     @Param('id') id: string,
     @Body() body: SendBookingMessageDto,
@@ -215,16 +200,8 @@ export class BookingRoutes {
     const result = await this.bookingClient.sendBookingMessage(id, body, this.getAuthHeaders(req));
     const userId = req.user?.id || req.user?.sub;
 
-    // Broadcast SSE realtime events (Chat + Notification)
-    bookingEventSubject.next({
-      bookingId: id,
-      senderId: userId,
-      data: {
-        type: 'new_message',
-        bookingId: id,
-        message: result,
-      },
-    });
+    // HTTP remains a compatibility fallback; realtime clients use BookingGateway.
+    this.bookingGateway.broadcastMessage(id, result);
 
     notificationEventSubject.next({
       data: {
@@ -265,50 +242,16 @@ export class BookingRoutes {
     const typing = typeof body === 'object' ? Boolean(body?.typing) : Boolean(body);
     const clientId = typeof body === 'object' ? body?.clientId : undefined;
 
-    // Broadcast SSE realtime event (0ms latency!)
-    bookingEventSubject.next({
+    this.bookingGateway.broadcastTyping(id, {
       bookingId: id,
-      senderId: userId,
-      data: {
-        type: 'typing',
-        bookingId: id,
-        userId,
-        clientId,
-        typing,
-      },
+      userId,
+      clientId,
+      typing,
     });
 
     return this.bookingClient.setTypingStatus(id, typing, this.getAuthHeaders(req));
   }
 
-  /** POST /bookings/:id/attachments — Tải lên tệp đính kèm hoặc hình ảnh trong phòng chat */
-  @Post(':id/attachments')
-  @ApiBearerAuth()
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Tải lên hình ảnh hoặc tệp tin đính kèm trong tin nhắn' })
-  async uploadChatAttachment(
-    @Param('id') id: string,
-    @UploadedFile() file: any,
-    @Req() req: any,
-  ) {
-    return this.bookingClient.uploadChatAttachment(id, file, this.getAuthHeaders(req));
-  }
-
-  /** GET /bookings/:id/events — Server-Sent Events stream cho RTK Query onCacheEntryAdded */
-  @Sse(':id/events')
-  @ApiOperation({ summary: 'Server-Sent Events stream cho tin nhắn và trạng thái gõ thời gian thực' })
-  bookingEvents(@Param('id') id: string): Observable<MessageEvent> {
-    return bookingEventSubject.asObservable().pipe(
-      filter((event) => event.bookingId === id),
-      map(
-        (event) =>
-          ({
-            data: JSON.stringify(event.data),
-          } as MessageEvent),
-      ),
-    );
-  }
 }
 
 

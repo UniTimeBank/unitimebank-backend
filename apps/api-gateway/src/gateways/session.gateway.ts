@@ -19,6 +19,7 @@ import { SessionClient } from '../clients/session.client';
     credentials: true,
   },
   namespace: '/sessions',
+  transports: ['websocket'],
 })
 export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -59,16 +60,24 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
    * Tham gia phòng Socket riêng của room để nhận broadcast
    */
   @SubscribeMessage('join-room')
-  handleJoinRoom(
+  async handleJoinRoom(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { roomId: string; userId?: string; role?: string; displayName?: string },
   ) {
-    const userId = data.userId || client.data.userId;
+    const userId = client.data.userId || data.userId;
     const roomId = data.roomId;
     if (!roomId) return { success: false, message: 'Thiếu roomId' };
 
-    client.join(`room_${roomId}`);
-    client.join(roomId);
+    if (!userId) return { success: false, message: 'Socket chưa được xác thực' };
+
+    try {
+      await this.sessionClient.send('session.getChatMessages', { roomId, userId });
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Không có quyền vào phòng' };
+    }
+
+    await client.join(`room_${roomId}`);
+    await client.join(roomId);
     this.logger.log(`User ${userId} joined socket room room_${roomId}`);
 
     const nsp = client.nsp || this.server;
@@ -91,7 +100,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { roomId: string; userId?: string },
   ) {
-    const userId = data.userId || client.data.userId;
+    const userId = client.data.userId || data.userId;
     const roomId = data.roomId;
     if (!roomId) return { success: false };
 
@@ -117,7 +126,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { roomId: string; userId?: string },
   ) {
-    const userId = data.userId || client.data.userId;
+    const userId = client.data.userId || data.userId;
     const roomId = data.roomId;
     if (!roomId || !userId) return { success: false };
 
@@ -146,11 +155,17 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
       senderAvatar?: string;
       attachmentUrl?: string;
       attachmentName?: string;
+      attachmentPublicId?: string;
+      attachmentResourceType?: 'image' | 'raw' | 'video';
     },
   ) {
-    const userId = data.userId || client.data.userId;
+    const userId = client.data.userId || data.userId;
     const roomId = data.roomId;
-    if (!roomId || (!data.content && !data.attachmentUrl)) return;
+    if (
+      !roomId ||
+      (!data.content && !data.attachmentUrl && !data.attachmentPublicId)
+    )
+      return;
 
     let payload: any;
     try {
@@ -160,6 +175,8 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         content: data.content || '',
         attachmentUrl: data.attachmentUrl,
         attachmentName: data.attachmentName,
+        attachmentPublicId: data.attachmentPublicId,
+        attachmentResourceType: data.attachmentResourceType,
       });
 
       payload = {
@@ -167,23 +184,13 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         content: data.content || saved?.content || '',
         senderName: data.senderName,
         senderAvatar: data.senderAvatar,
-        attachmentUrl: data.attachmentUrl || saved?.attachmentUrl,
+        attachmentUrl: saved?.attachmentUrl,
         attachmentName: data.attachmentName || saved?.attachmentName,
         sentAt: saved?.sentAt || new Date().toISOString(),
       };
     } catch (err: any) {
       this.logger.error(`Error sending in-room message over RMQ:`, err);
-      payload = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        roomId,
-        senderId: userId,
-        content: data.content || '',
-        senderName: data.senderName,
-        senderAvatar: data.senderAvatar,
-        attachmentUrl: data.attachmentUrl,
-        attachmentName: data.attachmentName,
-        sentAt: new Date().toISOString(),
-      };
+      return { success: false, error: err?.message || 'Không thể lưu tin nhắn trong phòng' };
     }
 
     const nsp = client.nsp || this.server;

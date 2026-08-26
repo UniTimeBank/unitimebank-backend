@@ -1,6 +1,5 @@
-import { Controller, Get, Patch, Post, Delete, Body, Param, Query, Req, UseInterceptors, UploadedFile } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
+import { Controller, Get, Patch, Post, Delete, Body, Param, Query, Req } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { UserClient } from '../clients/user.client';
 import {
   UpdateProfileDto,
@@ -27,6 +26,7 @@ import {
   ScheduleExceptionResponseDto,
   GetAvailabilityResponseDto,
 } from '@app/contracts/user';
+import { ConfirmAvatarUploadDto } from '@app/contracts';
 
 // ============================================
 // User Profile Routes
@@ -140,32 +140,18 @@ export class UserAvatarRoutes {
   constructor(private readonly userClient: UserClient) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('avatar'))
-  @ApiOperation({ summary: 'Upload ảnh đại diện cá nhân lên Cloudinary' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        avatar: {
-          type: 'string',
-          format: 'binary',
-          description: 'File ảnh đại diện (JPG, PNG, WEBP, <= 5MB)',
-        },
-      },
-    },
-  })
+  @ApiOperation({ summary: 'Xác minh direct upload và cập nhật ảnh đại diện' })
   @ApiResponse({
     status: 201,
     description: 'Upload thành công',
     type: UploadAvatarResponseDto,
   })
   async uploadAvatar(
-    @UploadedFile() file: any,
+    @Body() body: ConfirmAvatarUploadDto,
     @Req() req: any,
   ) {
     const headers = { Authorization: req.headers.authorization };
-    return this.userClient.uploadAvatar(file, headers);
+    return this.userClient.uploadAvatar(body, headers);
   }
 }
 

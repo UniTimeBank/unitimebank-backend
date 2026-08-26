@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
 
 export class SendBookingMessageDto {
   @ApiProperty({
@@ -49,6 +49,16 @@ export class SendBookingMessageDto {
   @IsOptional()
   @IsString()
   attachmentMime?: string;
+
+  @ApiPropertyOptional({ description: 'Cloudinary public_id dùng để xác minh direct upload' })
+  @IsOptional()
+  @IsString()
+  attachmentPublicId?: string;
+
+  @ApiPropertyOptional({ description: 'Cloudinary resource_type của asset' })
+  @IsOptional()
+  @IsIn(['image', 'raw', 'video'])
+  attachmentResourceType?: 'image' | 'raw' | 'video';
 }
 
 export class BookingMessageResponseDto {

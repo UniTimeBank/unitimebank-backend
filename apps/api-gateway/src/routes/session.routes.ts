@@ -7,10 +7,7 @@ import {
   Query,
   Req,
   UseGuards,
-  UseInterceptors,
-  UploadedFile,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -18,7 +15,6 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiQuery,
-  ApiConsumes,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@app/common/guards/jwt-auth.guard';
 import { SessionClient } from '../clients/session.client';
@@ -186,8 +182,8 @@ export class SessionRoutes {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Lấy lịch sử tin nhắn trong phòng học' })
-  async getChatMessages(@Param('roomId') roomId: string) {
-    return this.sessionClient.send('session.getChatMessages', { roomId });
+  async getChatMessages(@Param('roomId') roomId: string, @Req() req: any) {
+    return this.sessionClient.send('session.getChatMessages', { roomId, userId: req.user.id });
   }
 
   @Post(':roomId/chat')

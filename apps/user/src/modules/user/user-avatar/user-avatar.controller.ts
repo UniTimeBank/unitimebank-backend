@@ -1,22 +1,18 @@
 import {
   Controller,
   Post,
-  UseInterceptors,
-  UploadedFile,
   UseGuards,
   Req,
+  Body,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
-  ApiConsumes,
-  ApiBody,
 } from '@nestjs/swagger';
 import { UserAvatarService } from './user-avatar.service';
-import { UploadAvatarResponseDto } from '@app/contracts/user';
+import { ConfirmAvatarUploadDto, UploadAvatarResponseDto } from '@app/contracts';
 import { JwtAuthGuard } from '@app/common/guards/jwt-auth.guard';
 
 @ApiTags('User - Avatar')
@@ -28,21 +24,7 @@ export class UserAvatarController {
 
   /** Upload ảnh đại diện */
   @Post()
-  @UseInterceptors(FileInterceptor('avatar'))
-  @ApiOperation({ summary: 'Upload ảnh đại diện cá nhân lên Cloudinary' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        avatar: {
-          type: 'string',
-          format: 'binary',
-          description: 'File ảnh đại diện (JPG, PNG, WEBP, <= 5MB)',
-        },
-      },
-    },
-  })
+  @ApiOperation({ summary: 'Xác minh ảnh đã direct upload và cập nhật avatar' })
   @ApiResponse({
     status: 201,
     description: 'Upload thành công',
@@ -51,8 +33,8 @@ export class UserAvatarController {
   @ApiResponse({ status: 400, description: 'File không hợp lệ hoặc quá lớn' })
   async uploadAvatar(
     @Req() req: any,
-    @UploadedFile() file: any,
+    @Body() dto: ConfirmAvatarUploadDto,
   ): Promise<UploadAvatarResponseDto> {
-    return this.userAvatarService.uploadAvatar(req.user.id, file);
+    return this.userAvatarService.uploadAvatar(req.user.id, dto);
   }
 }

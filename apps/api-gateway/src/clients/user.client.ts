@@ -63,16 +63,8 @@ export class UserClient {
 
   // ============ Avatar ============
 
-  async uploadAvatar(file: any, headers: Record<string, string>) {
-    if (!file) {
-      throw new HttpException('Chưa chọn file ảnh', HttpStatus.BAD_REQUEST);
-    }
-
-    const formData = new FormData();
-    const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimetype });
-    formData.append('avatar', blob, file.originalname || 'avatar.jpg');
-
-    return this.request('POST', '/users/me/avatar', formData, headers);
+  async uploadAvatar(data: any, headers: Record<string, string>) {
+    return this.request('POST', '/users/me/avatar', data, headers);
   }
 
   // ============ Daily Check-in Streak ============

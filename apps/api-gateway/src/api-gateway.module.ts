@@ -11,6 +11,7 @@ import { ModerationClient } from './clients/moderation.client';
 import { NotificationClient } from './clients/notification.client';
 import { NotificationGateway } from './gateways/notification.gateway';
 import { SessionGateway } from './gateways/session.gateway';
+import { BookingGateway } from './gateways/booking.gateway';
 import { AuthRoutes } from './routes/auth.routes';
 import { UserRoutes, UserAvatarRoutes, UserFollowRoutes, UserCheckinRoutes, UserSkillRoutes, SkillCategoryRoutes, UserScheduleRoutes } from './routes/user.routes';
 import { PostMentorRoutes, PostLearnerRoutes, PostSearchRoutes } from './routes/post.routes';
@@ -21,11 +22,14 @@ import { ModerationRoutes } from './routes/moderation.routes';
 import { NotificationRoutes } from './routes/notification.routes';
 
 import { CommonModule } from '@app/common';
+import { CloudinaryModule } from '@app/common/cloudinary';
+import { UploadRoutes } from './routes/upload.routes';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     CommonModule,
+    CloudinaryModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60000,
@@ -50,6 +54,7 @@ import { CommonModule } from '@app/common';
     WalletRoutes,
     ModerationRoutes,
     NotificationRoutes,
+    UploadRoutes,
   ],
   providers: [
     AuthClient,
@@ -62,6 +67,7 @@ import { CommonModule } from '@app/common';
     NotificationClient,
     NotificationGateway,
     SessionGateway,
+    BookingGateway,
   ],
 })
 export class ApiGatewayModule {}

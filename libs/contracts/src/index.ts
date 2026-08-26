@@ -7,3 +7,4 @@ export * from './booking';
 export * from './notification';
 export * from './session';
 export * from './moderation';
+export * from './upload';

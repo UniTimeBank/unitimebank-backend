@@ -842,15 +842,36 @@ export class SessionService {
     content?: string,
     attachmentUrl?: string,
     attachmentName?: string,
+    attachmentPublicId?: string,
+    attachmentResourceType?: 'image' | 'raw' | 'video',
   ) {
     const room = await this.roomRepo.findOne({ where: { id: roomId } });
     if (!room) throw new NotFoundException('Không tìm thấy phòng học.');
+    await this.assertRoomParticipant(userId, roomId);
+
+    let verifiedAttachmentUrl: string | undefined;
+    if (attachmentUrl || attachmentPublicId) {
+      if (!room.bookingId || !attachmentPublicId || !attachmentResourceType) {
+        throw new BadRequestException('Thiếu metadata xác minh direct upload');
+      }
+      const asset = await this.cloudinaryService.verifyDirectUpload({
+        publicId: attachmentPublicId,
+        resourceType: attachmentResourceType,
+        expectedPublicIdPrefix: `unitimebank/chat-attachments/${room.bookingId}/${userId}_`,
+        maxBytes: 10 * 1024 * 1024,
+        allowedFormats:
+          attachmentResourceType === 'image'
+            ? ['jpg', 'jpeg', 'png', 'webp', 'gif']
+            : undefined,
+      });
+      verifiedAttachmentUrl = asset.url;
+    }
 
     const message = this.chatMessageRepo.create({
       roomId,
       senderId: userId,
       content: content || '',
-      attachmentUrl,
+      attachmentUrl: verifiedAttachmentUrl,
       attachmentName,
       sentAt: new Date(),
     });
@@ -862,12 +883,21 @@ export class SessionService {
   /**
    * Lấy lịch sử chat trong phòng học
    */
-  async getRoomChatMessages(roomId: string) {
+  async getRoomChatMessages(userId: string, roomId: string) {
+    await this.assertRoomParticipant(userId, roomId);
     return this.chatMessageRepo.find({
       where: { roomId },
       order: { sentAt: 'ASC' },
       take: 100,
     });
+  }
+
+  private async assertRoomParticipant(userId: string, roomId: string) {
+    const participant = await this.participantRepo.findOne({ where: { roomId, userId } });
+    if (!participant || participant.isKicked) {
+      throw new ForbiddenException('Bạn không có quyền truy cập chat của phòng học này.');
+    }
+    return participant;
   }
 
   // ════════════════════════════════════════════════════════════════
