@@ -395,6 +395,29 @@ export class ModerationService implements OnModuleInit {
     };
   }
 
+  /**
+   * Quản trị viên điều chỉnh điểm uy tín thủ công (kèm ghi chú và phát event đồng bộ toàn hệ thống)
+   */
+  async adminAdjustTrustScore(
+    userId: string,
+    delta: number,
+    adminId: string,
+    note?: string,
+  ) {
+    const change = await this.changeTrustScore(
+      userId,
+      delta,
+      TrustChangeReason.ADMIN_ADJUSTMENT,
+      adminId,
+      'ADMIN_MANUAL_ADJUSTMENT',
+    );
+    return {
+      success: true,
+      message: `Đã điều chỉnh ${delta > 0 ? `+${delta}` : delta} điểm uy tín cho người dùng thành công`,
+      change,
+    };
+  }
+
   // ==================== VIOLATION REPORTS ====================
 
   async createReport(reporterId: string, dto: CreateViolationReportDto) {

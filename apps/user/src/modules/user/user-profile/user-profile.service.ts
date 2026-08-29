@@ -282,7 +282,7 @@ export class UserProfileService {
       displayName: initialData?.displayName || '',
       avatarUrl: initialData?.avatarUrl || '',
       bio: '',
-      trustScore: 30,
+      trustScore: 100,
       onboardingCompleted: false,
     });
 
@@ -297,10 +297,10 @@ export class UserProfileService {
   }
 
   private getTrustTier(score: number): string {
-    if (score >= 90) return 'EXCELLENT';
-    if (score >= 70) return 'GOOD';
+    if (score >= 120) return 'EXCELLENT';
+    if (score >= 80) return 'GOOD';
     if (score >= 50) return 'AVERAGE';
-    if (score >= 20) return 'WARNING';
+    if (score > 0) return 'WARNING';
     return 'LOCKED';
   }
 
@@ -315,5 +315,66 @@ export class UserProfileService {
     }
 
     return profile;
+  }
+
+  /**
+   * Lấy danh sách toàn bộ người dùng cho Admin Portal
+   */
+  async getAllUsers(query: { search?: string; tier?: string; page?: number; limit?: number }) {
+    const page = query.page || 1;
+    const limit = query.limit || 50;
+    const skip = (page - 1) * limit;
+
+    const qb = this.userProfileRepo
+      .createQueryBuilder('profile')
+      .leftJoinAndSelect('profile.skills', 'skills');
+
+    if (query.search) {
+      qb.andWhere('(profile.displayName ILIKE :search OR profile.bio ILIKE :search)', {
+        search: `%${query.search}%`,
+      });
+    }
+
+    if (query.tier) {
+      if (query.tier === 'EXCELLENT') qb.andWhere('profile.trustScore >= 120');
+      else if (query.tier === 'GOOD') qb.andWhere('profile.trustScore >= 80 AND profile.trustScore < 120');
+      else if (query.tier === 'AVERAGE') qb.andWhere('profile.trustScore >= 50 AND profile.trustScore < 80');
+      else if (query.tier === 'WARNING') qb.andWhere('profile.trustScore > 0 AND profile.trustScore < 50');
+      else if (query.tier === 'LOCKED') qb.andWhere('profile.trustScore = 0');
+    }
+
+    qb.orderBy('profile.createdAt', 'DESC');
+    qb.skip(skip).take(limit);
+
+    const [profiles, total] = await qb.getManyAndCount();
+
+    const formatted = profiles.map((p) => ({
+      id: p.id,
+      userId: p.userId,
+      email: p.displayName ? `${p.displayName.toLowerCase().replace(/\s+/g, '')}@gmail.com` : 'sinhvien@gmail.com',
+      fullName: p.displayName || 'Sinh Viên UniTime',
+      displayName: p.displayName,
+      avatarUrl: p.avatarUrl,
+      bio: p.bio || '',
+      trustScore: p.trustScore ?? 100,
+      mentorTrustScore: p.trustScore ?? 100,
+      learnerTrustScore: 100,
+      tier: this.getTrustTier(p.trustScore ?? 100),
+      createdAt: p.createdAt,
+      skills: p.skills?.map((s) => ({
+        id: s.id,
+        name: s.skillName,
+        category: s.category,
+        isStrong: s.isStrong,
+      })) || [],
+    }));
+
+    return {
+      users: formatted,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
   }
 }

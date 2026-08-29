@@ -4,6 +4,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
 } from '@nestjs/common';
@@ -19,6 +20,25 @@ import { JwtAuthGuard } from '@app/common/guards/jwt-auth.guard';
 @Controller('users')
 export class UserProfileController {
   constructor(private readonly userProfileService: UserProfileService) {}
+
+  /**
+   * GET /users
+   * Lấy danh sách toàn bộ người dùng kèm phân trang, tìm kiếm, lọc theo tier
+   */
+  @Get()
+  async getAllUsers(
+    @Query('search') search?: string,
+    @Query('tier') tier?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.userProfileService.getAllUsers({
+      search,
+      tier,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 50,
+    });
+  }
 
   /**
    * GET /users/me

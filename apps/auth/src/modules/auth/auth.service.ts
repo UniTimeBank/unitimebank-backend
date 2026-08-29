@@ -5,6 +5,8 @@ import {
   BadRequestException,
   NotFoundException,
   Inject,
+  OnModuleInit,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -24,7 +26,8 @@ import { RegisterDto, LoginDto, VerifyOtpDto, GoogleAuthDto, SetPasswordDto } fr
 import { USER_EVENTS } from '@app/contracts/events';
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
+  private readonly logger = new Logger(AuthService.name);
   private readonly OTP_EXPIRY = 5 * 60;
   private readonly MAX_OTP_ATTEMPTS = 5;
   private readonly googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -43,7 +46,46 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
     @Inject('USER_SERVICE') private readonly userClient: ClientProxy,
-  ) {}
+  ) { }
+
+  async onModuleInit() {
+    await this.seedDefaultAdminAccounts();
+  }
+
+  private async seedDefaultAdminAccounts() {
+    try {
+      const defaultAccounts = [
+        {
+          email: 'admin@gmail.com',
+          password: 'Admin@123456',
+          role: Role.ADMIN,
+        },
+        {
+          email: 'moderator@gmail.com',
+          password: 'Moderator@123456',
+          role: Role.MODERATOR,
+        },
+      ];
+
+      for (const acc of defaultAccounts) {
+        const existing = await this.userAccountRepo.findOne({ where: { email: acc.email } });
+        if (!existing) {
+          const passwordHash = await bcrypt.hash(acc.password, 12);
+          const newAcc = this.userAccountRepo.create({
+            email: acc.email,
+            passwordHash,
+            role: acc.role,
+            status: AccountStatus.ACTIVE,
+            trustScore: 100,
+          });
+          await this.userAccountRepo.save(newAcc);
+          this.logger.log(`Default seed account ${acc.email} (${acc.role}) created.`);
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not seed default admin accounts: ${err.message}`);
+    }
+  }
 
   // ==================== ĐĂNG KÝ ====================
 
@@ -61,7 +103,7 @@ export class AuthService {
       passwordHash,
       role: Role.USER,
       status: AccountStatus.PENDING_VERIFY,
-      trustScore: 50,
+      trustScore: 100,
     });
     await this.userAccountRepo.save(userAccount);
 
@@ -113,7 +155,7 @@ export class AuthService {
         timestamp: new Date().toISOString(),
       });
       // Gửi email chào mừng (bất đồng bộ)
-      this.emailService.sendWelcome(dto.email).catch(() => {});
+      this.emailService.sendWelcome(dto.email).catch(() => { });
     }
 
     return {
@@ -253,7 +295,7 @@ export class AuthService {
       });
       await this.userAccountRepo.save(userAccount);
 
-      this.emailService.sendWelcome(email, name).catch(() => {});
+      this.emailService.sendWelcome(email, name).catch(() => { });
     } else {
       if (userAccount.status === AccountStatus.PENDING_VERIFY) {
         userAccount.status = AccountStatus.ACTIVE;
@@ -567,5 +609,105 @@ export class AuthService {
 
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  // ==================== ADMIN ACCOUNT MANAGEMENT ====================
+
+  async getAdminAccounts(query: {
+    search?: string;
+    role?: Role;
+    status?: AccountStatus;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = query.page || 1;
+    const limit = query.limit || 50;
+    const skip = (page - 1) * limit;
+
+    const qb = this.userAccountRepo.createQueryBuilder('acc');
+
+    if (query.search) {
+      qb.andWhere('acc.email ILIKE :search', { search: `%${query.search}%` });
+    }
+
+    if (query.role) {
+      qb.andWhere('acc.role = :role', { role: query.role });
+    }
+
+    if (query.status) {
+      qb.andWhere('acc.status = :status', { status: query.status });
+    }
+
+    qb.orderBy('acc.createdAt', 'DESC');
+    qb.skip(skip).take(limit);
+
+    const [accounts, total] = await qb.getManyAndCount();
+
+    const formatted = accounts.map((acc) => ({
+      id: acc.id,
+      email: acc.email,
+      role: acc.role,
+      status: acc.status,
+      trustScore: acc.trustScore,
+      createdAt: acc.createdAt,
+      updatedAt: acc.updatedAt,
+    }));
+
+    return {
+      accounts: formatted,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  async updateAccountStatus(id: string, status: AccountStatus) {
+    const account = await this.userAccountRepo.findOne({ where: { id } });
+    if (!account) {
+      throw new NotFoundException('Không tìm thấy tài khoản người dùng');
+    }
+    account.status = status;
+    await this.userAccountRepo.save(account);
+    return {
+      id: account.id,
+      email: account.email,
+      role: account.role,
+      status: account.status,
+    };
+  }
+
+  async updateAccountRole(id: string, role: Role) {
+    const account = await this.userAccountRepo.findOne({ where: { id } });
+    if (!account) {
+      throw new NotFoundException('Không tìm thấy tài khoản người dùng');
+    }
+    account.role = role;
+    await this.userAccountRepo.save(account);
+    return {
+      id: account.id,
+      email: account.email,
+      role: account.role,
+      status: account.status,
+    };
+  }
+
+  async adminResetPassword(id: string, newPassword?: string) {
+    const account = await this.userAccountRepo.findOne({ where: { id } });
+    if (!account) {
+      throw new NotFoundException('Không tìm thấy tài khoản người dùng');
+    }
+    const pwd = newPassword || 'UniTime@123456';
+    account.passwordHash = await bcrypt.hash(pwd, 10);
+    await this.userAccountRepo.save(account);
+    return {
+      success: true,
+      message: `Đã đặt lại mật khẩu cho tài khoản ${account.email} thành công!`,
+      temporaryPassword: pwd,
+    };
+  }
+
+  async updateTrustScore(userId: string, newScore: number) {
+    await this.userAccountRepo.update({ id: userId }, { trustScore: newScore });
   }
 }

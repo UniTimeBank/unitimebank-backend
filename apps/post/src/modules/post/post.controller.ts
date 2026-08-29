@@ -10,7 +10,7 @@ import {
   GetLearnerRequestsQueryDto,
   SearchPostsQueryDto,
 } from '@app/contracts/post';
-import { POST_EVENTS } from '@app/contracts/events';
+import { POST_EVENTS, MODERATION_EVENTS } from '@app/contracts/events';
 
 @Controller()
 export class PostController {
@@ -135,5 +135,13 @@ export class PostController {
   @EventPattern(POST_EVENTS.USER_TRUST_SCORE_UPDATED)
   async handleUserTrustScoreUpdated(@Payload() data: any) {
     await this.postService.handleUserProfileUpdated(data);
+  }
+
+  @EventPattern(MODERATION_EVENTS.TRUST_SCORE_UPDATED)
+  async handleModerationTrustScoreUpdated(@Payload() data: { userId: string; score: number }) {
+    await this.postService.handleUserProfileUpdated({
+      userId: data.userId,
+      trustScore: data.score,
+    });
   }
 }

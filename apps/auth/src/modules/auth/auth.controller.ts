@@ -1,12 +1,19 @@
 import {
   Controller,
   Post,
+  Get,
+  Patch,
+  Param,
+  Query,
   Body,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { EventPattern, Payload } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, VerifyOtpDto, GoogleAuthDto, SetPasswordDto } from '@app/contracts/auth';
+import { RegisterDto, LoginDto, VerifyOtpDto, GoogleAuthDto } from '@app/contracts/auth';
+import { MODERATION_EVENTS } from '@app/contracts/events';
+import { Role, AccountStatus } from './enums';
 
 @Controller('auth')
 export class AuthController {
@@ -76,5 +83,60 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async logout(@Body() body: { refreshToken?: string }) {
     return this.authService.logout(body.refreshToken || '');
+  }
+
+  // ========== ADMIN ACCOUNT MANAGEMENT ==========
+
+  @Get('admin/accounts')
+  async getAdminAccounts(
+    @Query('search') search?: string,
+    @Query('role') role?: Role,
+    @Query('status') status?: AccountStatus,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.authService.getAdminAccounts({
+      search,
+      role,
+      status,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 50,
+    });
+  }
+
+  @Patch('admin/accounts/:id/status')
+  async updateAccountStatus(
+    @Param('id') id: string,
+    @Body('status') status: AccountStatus,
+  ) {
+    return this.authService.updateAccountStatus(id, status);
+  }
+
+  @Patch('admin/accounts/:id/role')
+  async updateAccountRole(
+    @Param('id') id: string,
+    @Body('role') role: Role,
+  ) {
+    return this.authService.updateAccountRole(id, role);
+  }
+
+  @Post('admin/accounts/:id/reset-password')
+  async adminResetPassword(
+    @Param('id') id: string,
+    @Body('newPassword') newPassword?: string,
+  ) {
+    return this.authService.adminResetPassword(id, newPassword);
+  }
+
+  // ========== RABBITMQ EVENT PATTERN ==========
+
+  @EventPattern(MODERATION_EVENTS.TRUST_SCORE_UPDATED)
+  async handleTrustScoreUpdated(@Payload() data: { userId: string; score: number }) {
+    if (!data?.userId) return;
+    try {
+      await this.authService.updateTrustScore(data.userId, data.score);
+    } catch (err) {
+      console.error('[AUTH EVENT] Error updating trust score:', err);
+    }
   }
 }

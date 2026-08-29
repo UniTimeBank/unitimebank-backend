@@ -14,4 +14,16 @@ export class WalletLedgerController {
     if (!data?.userId) return { entries: [], pagination: { total: 0, page: 1, limit: 50, totalPages: 1 } };
     return this.walletLedgerService.getHistory(data.userId, data.query || {});
   }
+
+  @MessagePattern('wallet.getSystemStats')
+  async getSystemStats() {
+    return this.walletLedgerService.getSystemFinancialStats();
+  }
+
+  @MessagePattern('wallet.getAllLedger')
+  async getAllLedger(@Payload() data?: { page?: number; limit?: number }) {
+    const page = data?.page || 1;
+    const limit = data?.limit || 50;
+    return this.walletLedgerService.getAllLedgerEntries(page, limit);
+  }
 }

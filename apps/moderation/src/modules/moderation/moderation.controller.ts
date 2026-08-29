@@ -40,6 +40,18 @@ export class ModerationController {
     return this.moderationService.getTrustScoreHistory(data.userId);
   }
 
+  @MessagePattern('moderation.adminAdjustTrustScore')
+  async adminAdjustTrustScore(
+    @Payload() data: { userId: string; delta: number; adminId: string; note?: string },
+  ) {
+    return this.moderationService.adminAdjustTrustScore(
+      data.userId,
+      data.delta,
+      data.adminId,
+      data.note,
+    );
+  }
+
   // ==================== VIOLATION REPORTS ====================
 
   @MessagePattern('moderation.createReport')

@@ -1,6 +1,7 @@
 import { Controller, Get, Query, Param, UseGuards, Req } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard } from '@app/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiQuery } from '@nestjs/swagger';
+import { JwtAuthGuard, RolesGuard, Roles } from '@app/common';
+import { Role } from '@app/contracts';
 import { WalletClient } from '../clients/wallet.client';
 import {
   WalletResponseDto,
@@ -13,6 +14,31 @@ import {
 @Controller('wallets')
 export class WalletRoutes {
   constructor(private readonly walletClient: WalletClient) {}
+
+  /** Lấy thống kê tài chính toàn hệ thống cho Admin */
+  @Get('admin/stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin - Thống kê tài chính, escrow & lưu thông credit' })
+  getAdminStats() {
+    return this.walletClient.send('wallet.getSystemStats', {});
+  }
+
+  /** Lấy toàn bộ nhật ký sổ cái hệ thống cho Admin */
+  @Get('admin/ledger')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin - Xem toàn bộ sổ cái giao dịch hệ thống' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  getAdminLedger(@Query('page') page?: number, @Query('limit') limit?: number) {
+    return this.walletClient.send('wallet.getAllLedger', {
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 50,
+    });
+  }
 
   /** Lấy thông tin ví của user hiện tại */
   @Get('me')

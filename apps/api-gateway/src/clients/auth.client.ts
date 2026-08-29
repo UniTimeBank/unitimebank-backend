@@ -74,4 +74,31 @@ export class AuthClient {
   async logout(data: any) {
     return this.request('POST', '/auth/logout', data);
   }
+
+  // ========== ADMIN ACCOUNT MANAGEMENT ==========
+
+  async getAdminAccounts(params: { search?: string; role?: string; status?: string; page?: number; limit?: number }) {
+    let queryStr = '';
+    const queryParams: string[] = [];
+    if (params.search) queryParams.push(`search=${encodeURIComponent(params.search)}`);
+    if (params.role) queryParams.push(`role=${encodeURIComponent(params.role)}`);
+    if (params.status) queryParams.push(`status=${encodeURIComponent(params.status)}`);
+    if (params.page) queryParams.push(`page=${params.page}`);
+    if (params.limit) queryParams.push(`limit=${params.limit}`);
+    if (queryParams.length > 0) queryStr = `?${queryParams.join('&')}`;
+
+    return this.request('GET', `/auth/admin/accounts${queryStr}`);
+  }
+
+  async updateAccountStatus(id: string, status: string) {
+    return this.request('PATCH', `/auth/admin/accounts/${id}/status`, { status });
+  }
+
+  async updateAccountRole(id: string, role: string) {
+    return this.request('PATCH', `/auth/admin/accounts/${id}/role`, { role });
+  }
+
+  async adminResetPassword(id: string, newPassword?: string) {
+    return this.request('POST', `/auth/admin/accounts/${id}/reset-password`, { newPassword });
+  }
 }

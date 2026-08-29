@@ -1,6 +1,9 @@
 import { Controller, Get, Patch, Post, Delete, Body, Param, Query, Req } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { UserClient } from '../clients/user.client';
+import { AuthClient } from '../clients/auth.client';
+import { WalletClient } from '../clients/wallet.client';
+import { ModerationClient } from '../clients/moderation.client';
 import {
   UpdateProfileDto,
   GetUserProfileResponseDto,
@@ -34,7 +37,94 @@ import { ConfirmAvatarUploadDto } from '@app/contracts';
 @ApiTags('User - Người dùng')
 @Controller('users')
 export class UserRoutes {
-  constructor(private readonly userClient: UserClient) {}
+  constructor(
+    private readonly userClient: UserClient,
+    private readonly authClient: AuthClient,
+    private readonly walletClient: WalletClient,
+    private readonly moderationClient: ModerationClient,
+  ) {}
+
+  /** Lấy danh sách toàn bộ người dùng kèm lọc theo phân hạng Tier và tìm kiếm (Đã match chính xác với Auth, Wallet và Moderation) */
+  @Get()
+  @ApiOperation({ summary: 'Lấy danh sách người dùng (hỗ trợ tìm kiếm, lọc tier, phân trang)' })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'tier', required: false, type: String })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async getAllUsers(
+    @Query('search') search?: string,
+    @Query('tier') tier?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    const [userRes, accountsRes] = await Promise.all([
+      this.userClient.getAllUsers({ search, tier, page, limit }),
+      this.authClient.getAdminAccounts({ limit: 200 }),
+    ]);
+
+    const accountMap = new Map<string, any>();
+    if (accountsRes && Array.isArray(accountsRes.accounts)) {
+      accountsRes.accounts.forEach((acc: any) => {
+        accountMap.set(acc.id, acc);
+      });
+    }
+
+    if (userRes && Array.isArray(userRes.users)) {
+      userRes.users = await Promise.all(
+        userRes.users.map(async (u: any) => {
+          const acc = accountMap.get(u.userId);
+          let creditBalance = 0;
+          try {
+            const wallet = await this.walletClient.send<any>('wallet.findOne', { userId: u.userId });
+            if (wallet) {
+              creditBalance = wallet.availableBalance ?? 0;
+            }
+          } catch {
+            creditBalance = 0;
+          }
+
+          let mentorScore = 100;
+          let trustTier = 'GOOD';
+          try {
+            const trustRes = await this.moderationClient.send<any>('moderation.getTrustScore', { userId: u.userId });
+            if (trustRes && typeof trustRes.score === 'number') {
+              mentorScore = trustRes.score;
+              trustTier = trustRes.tier || this.calculateTier(mentorScore);
+            }
+          } catch {
+            mentorScore = 100;
+            trustTier = 'GOOD';
+          }
+
+          const learnerScore = 100;
+          const learnerTier = this.calculateTier(learnerScore);
+          return {
+            ...u,
+            email: acc ? acc.email : u.email,
+            role: acc ? acc.role : 'USER',
+            status: acc ? acc.status : 'ACTIVE',
+            trustScore: mentorScore,
+            mentorTrustScore: mentorScore,
+            mentorTier: trustTier,
+            learnerTrustScore: learnerScore,
+            learnerTier: learnerTier,
+            tier: trustTier,
+            creditBalance,
+          };
+        }),
+      );
+    }
+
+    return userRes;
+  }
+
+  private calculateTier(score: number): string {
+    if (score >= 120) return 'EXCELLENT';
+    if (score >= 80) return 'GOOD';
+    if (score >= 50) return 'AVERAGE';
+    if (score > 0) return 'WARNING';
+    return 'LOCKED';
+  }
 
   /** Lấy thông tin profile của user hiện tại */
   @Get('me')

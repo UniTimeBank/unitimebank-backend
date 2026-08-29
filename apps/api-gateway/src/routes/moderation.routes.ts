@@ -94,6 +94,23 @@ export class ModerationRoutes {
     });
   }
 
+  @Post('admin/adjust-trust-score')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin điều chỉnh điểm uy tín người dùng thủ công (+/- điểm)' })
+  async adminAdjustTrustScore(
+    @Body() body: { userId: string; delta: number; note?: string },
+    @Req() req: any,
+  ) {
+    const adminId = req.user.id;
+    return this.moderationClient.send('moderation.adminAdjustTrustScore', {
+      userId: body.userId,
+      delta: body.delta,
+      adminId,
+      note: body.note,
+    });
+  }
+
   // ════════════════════════════════════════════════════════════════
   // 3. BÁO CÁO VI PHẠM (VIOLATION REPORTS)
   // ════════════════════════════════════════════════════════════════

@@ -45,6 +45,18 @@ export class UserClient {
 
   // ============ Profile ============
 
+  async getAllUsers(params: { search?: string; tier?: string; page?: number; limit?: number }) {
+    let queryStr = '';
+    const queryParams: string[] = [];
+    if (params.search) queryParams.push(`search=${encodeURIComponent(params.search)}`);
+    if (params.tier) queryParams.push(`tier=${encodeURIComponent(params.tier)}`);
+    if (params.page) queryParams.push(`page=${params.page}`);
+    if (params.limit) queryParams.push(`limit=${params.limit}`);
+    if (queryParams.length > 0) queryStr = `?${queryParams.join('&')}`;
+
+    return this.request('GET', `/users${queryStr}`);
+  }
+
   async getMyProfile(headers: Record<string, string>) {
     return this.request('GET', '/users/me', undefined, headers);
   }

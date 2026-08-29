@@ -103,4 +103,83 @@ export class WalletLedgerService {
       },
     };
   }
+
+  /**
+   * Thống kê tài chính toàn hệ thống dành cho Admin
+   */
+  async getSystemFinancialStats() {
+    // 1. Tổng tiền giải ngân hoàn tất
+    const releaseRes = await this.ledgerRepo
+      .createQueryBuilder('e')
+      .select('SUM(e.amount)', 'total')
+      .where('e.entry_type = :type', { type: EntryType.ESCROW_RELEASE })
+      .getRawOne();
+    const totalCompletedTransfers = Number(releaseRes?.total) || 0;
+
+    // 2. Tổng tiền hoàn trả
+    const refundRes = await this.ledgerRepo
+      .createQueryBuilder('e')
+      .select('SUM(e.amount)', 'total')
+      .where('e.entry_type = :type', { type: EntryType.CANCELLATION_REFUND })
+      .getRawOne();
+    const totalRefunded = Number(refundRes?.total) || 0;
+
+    // 3. Tổng số lượng credit giao dịch
+    const circRes = await this.ledgerRepo
+      .createQueryBuilder('e')
+      .select('SUM(e.amount)', 'total')
+      .getRawOne();
+    const systemCirculation = Number(circRes?.total) || 0;
+
+    // 4. Tổng credit đang bị ký quỹ
+    const holdRes = await this.ledgerRepo
+      .createQueryBuilder('e')
+      .select('SUM(e.amount)', 'total')
+      .where('e.entry_type = :type', { type: EntryType.ESCROW_HOLD })
+      .getRawOne();
+    const totalEscrowHeld = Math.max(0, (Number(holdRes?.total) || 0) - totalCompletedTransfers - totalRefunded);
+
+    return {
+      totalEscrowHeld,
+      totalCompletedTransfers,
+      totalRefunded,
+      systemCirculation: systemCirculation > 0 ? systemCirculation : totalCompletedTransfers + totalEscrowHeld,
+    };
+  }
+
+  /**
+   * Lấy toàn bộ nhật ký sổ cái toàn hệ thống cho Admin
+   */
+  async getAllLedgerEntries(page = 1, limit = 50) {
+    const skip = (page - 1) * limit;
+
+    const [entries, total] = await this.ledgerRepo.findAndCount({
+      order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
+    });
+
+    const formattedEntries = entries.map((e) => ({
+      id: e.id,
+      userId: e.userId,
+      walletId: e.walletId,
+      direction: e.direction,
+      entryType: e.entryType,
+      amount: e.amount,
+      balanceAfter: e.balanceAfter,
+      referenceId: e.referenceId,
+      referenceKind: e.referenceKind,
+      createdAt: e.createdAt,
+    }));
+
+    return {
+      entries: formattedEntries,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
 }

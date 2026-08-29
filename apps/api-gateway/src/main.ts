@@ -15,8 +15,13 @@ async function bootstrap() {
   );
 
   app.setGlobalPrefix('api');
+  const envOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) || [];
+  const allowedOrigins = Array.from(
+    new Set(['http://localhost:5173', 'http://localhost:5174', ...envOrigins]),
+  );
+
   app.enableCors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
+    origin: allowedOrigins,
     credentials: true,
   });
 
