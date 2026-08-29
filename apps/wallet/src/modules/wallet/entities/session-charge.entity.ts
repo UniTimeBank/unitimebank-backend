@@ -14,6 +14,12 @@ export class SessionCharge {
   @Column({ name: 'mentor_id' })
   mentorId: string;
 
+  @Column({ name: 'charge_key', unique: true, nullable: true })
+  chargeKey: string;
+
+  @Column({ name: 'minute_index', nullable: true })
+  minuteIndex: number;
+
   @Column({ name: 'minutes_charged' })
   minutesCharged: number;
 

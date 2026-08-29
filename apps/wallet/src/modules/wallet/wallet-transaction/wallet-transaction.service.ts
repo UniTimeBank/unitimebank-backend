@@ -1,13 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import { WalletAccountService } from '../wallet-account/wallet-account.service';
 import { WalletLedgerService } from '../wallet-ledger/wallet-ledger.service';
 import { LedgerDirection, EntryType, ReferenceKind } from '../enums';
+import {
+  CreditLedgerEntry,
+  SessionCharge,
+  Wallet,
+} from '../entities';
 
 @Injectable()
 export class WalletTransactionService {
   constructor(
     private readonly walletAccountService: WalletAccountService,
     private readonly walletLedgerService: WalletLedgerService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -47,42 +54,119 @@ export class WalletTransactionService {
     learnerId: string;
     mentorId: string;
     amount: number;
+    chargeKey: string;
+    minuteIndex: number;
   }) {
-    // 1. Trừ credit phía Learner
-    const learnerWallet = await this.walletAccountService.findOrCreateWallet(data.learnerId);
-    learnerWallet.availableBalance = Math.max(0, learnerWallet.availableBalance - data.amount);
-    learnerWallet.totalSpent += data.amount;
-    const savedLearner = await this.walletAccountService['walletRepo'].save(learnerWallet);
+    if (
+      !data.chargeKey ||
+      !Number.isInteger(data.minuteIndex) ||
+      data.minuteIndex < 1 ||
+      !Number.isInteger(data.amount) ||
+      data.amount < 1
+    ) {
+      throw new BadRequestException('Thông tin lần tính phí không hợp lệ');
+    }
 
-    await this.walletLedgerService.recordEntry({
-      walletId: savedLearner.id,
-      userId: data.learnerId,
-      direction: LedgerDirection.DEBIT,
-      entryType: EntryType.HEARTBEAT_DEDUCT,
-      amount: data.amount,
-      balanceAfter: savedLearner.availableBalance,
-      referenceId: data.roomId,
-      referenceKind: ReferenceKind.SESSION_ROOM,
+    // Bảo đảm cả hai ví tồn tại trước khi bắt đầu transaction khóa số dư.
+    await Promise.all([
+      this.walletAccountService.findOrCreateWallet(data.learnerId),
+      this.walletAccountService.findOrCreateWallet(data.mentorId),
+    ]);
+
+    return this.dataSource.transaction(async (manager) => {
+      const walletRepo = manager.getRepository(Wallet);
+      const chargeRepo = manager.getRepository(SessionCharge);
+      const ledgerRepo = manager.getRepository(CreditLedgerEntry);
+
+      // Khóa theo thứ tự cố định để tránh deadlock khi nhiều learner trả cùng mentor.
+      const wallets = await walletRepo
+        .createQueryBuilder('wallet')
+        .setLock('pessimistic_write')
+        .where('wallet.userId IN (:...userIds)', {
+          userIds: [data.learnerId, data.mentorId].sort(),
+        })
+        .orderBy('wallet.userId', 'ASC')
+        .getMany();
+      const learnerWallet = wallets.find(
+        (wallet) => wallet.userId === data.learnerId,
+      );
+      const mentorWallet = wallets.find(
+        (wallet) => wallet.userId === data.mentorId,
+      );
+      if (!learnerWallet || !mentorWallet) {
+        throw new BadRequestException('Không tìm thấy ví người học hoặc mentor');
+      }
+
+      const existingCharge = await chargeRepo.findOne({
+        where: { chargeKey: data.chargeKey },
+      });
+      if (existingCharge) {
+        return {
+          success: true,
+          charged: false,
+          alreadyProcessed: true,
+          balanceAfter: learnerWallet.availableBalance,
+        };
+      }
+
+      if (learnerWallet.availableBalance < data.amount) {
+        return {
+          success: false,
+          charged: false,
+          reason: 'INSUFFICIENT_BALANCE',
+          balanceAfter: learnerWallet.availableBalance,
+        };
+      }
+
+      learnerWallet.availableBalance -= data.amount;
+      learnerWallet.totalSpent += data.amount;
+      mentorWallet.availableBalance += data.amount;
+      mentorWallet.totalEarned += data.amount;
+      await walletRepo.save([learnerWallet, mentorWallet]);
+
+      const debitEntry = await ledgerRepo.save(
+        ledgerRepo.create({
+          walletId: learnerWallet.id,
+          userId: data.learnerId,
+          direction: LedgerDirection.DEBIT,
+          entryType: EntryType.HEARTBEAT_DEDUCT,
+          amount: data.amount,
+          balanceAfter: learnerWallet.availableBalance,
+          referenceId: data.chargeKey,
+          referenceKind: ReferenceKind.SESSION_ROOM,
+        }),
+      );
+      await ledgerRepo.save(
+        ledgerRepo.create({
+          walletId: mentorWallet.id,
+          userId: data.mentorId,
+          direction: LedgerDirection.CREDIT,
+          entryType: EntryType.HEARTBEAT_DEDUCT,
+          amount: data.amount,
+          balanceAfter: mentorWallet.availableBalance,
+          referenceId: data.chargeKey,
+          referenceKind: ReferenceKind.SESSION_ROOM,
+        }),
+      );
+      await chargeRepo.save(
+        chargeRepo.create({
+          roomId: data.roomId,
+          learnerId: data.learnerId,
+          mentorId: data.mentorId,
+          chargeKey: data.chargeKey,
+          minuteIndex: data.minuteIndex,
+          minutesCharged: data.amount,
+          ledgerEntryId: debitEntry.id,
+        }),
+      );
+
+      return {
+        success: true,
+        charged: true,
+        alreadyProcessed: false,
+        balanceAfter: learnerWallet.availableBalance,
+      };
     });
-
-    // 2. Cộng credit phía Mentor
-    const mentorWallet = await this.walletAccountService.findOrCreateWallet(data.mentorId);
-    mentorWallet.availableBalance += data.amount;
-    mentorWallet.totalEarned += data.amount;
-    const savedMentor = await this.walletAccountService['walletRepo'].save(mentorWallet);
-
-    await this.walletLedgerService.recordEntry({
-      walletId: savedMentor.id,
-      userId: data.mentorId,
-      direction: LedgerDirection.CREDIT,
-      entryType: EntryType.HEARTBEAT_DEDUCT,
-      amount: data.amount,
-      balanceAfter: savedMentor.availableBalance,
-      referenceId: data.roomId,
-      referenceKind: ReferenceKind.SESSION_ROOM,
-    });
-
-    return { success: true, learnerBalance: savedLearner.availableBalance };
   }
 
   /**

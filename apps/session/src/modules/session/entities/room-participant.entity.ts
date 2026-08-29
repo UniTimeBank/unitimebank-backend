@@ -31,6 +31,15 @@ export class RoomParticipant {
   @Column({ name: 'credit_charged', default: 0 })
   creditCharged: number;
 
+  @Column({ name: 'active_seconds', default: 0 })
+  activeSeconds: number;
+
+  @Column({ name: 'charged_minutes', default: 0 })
+  chargedMinutes: number;
+
+  @Column({ name: 'last_heartbeat_at', type: 'timestamptz', nullable: true })
+  lastHeartbeatAt: Date | null;
+
   @Column({ name: 'is_muted', default: false })
   isMuted: boolean;
 

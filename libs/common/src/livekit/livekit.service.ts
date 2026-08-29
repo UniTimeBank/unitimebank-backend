@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { ParticipantRole } from '@app/contracts/session';
 
 @Injectable()
@@ -9,11 +9,17 @@ export class LiveKitService {
   private readonly apiKey: string;
   private readonly apiSecret: string;
   private readonly wsUrl: string;
+  private readonly roomServiceClient: RoomServiceClient;
 
   constructor(private readonly configService: ConfigService) {
     this.apiKey = this.configService.get<string>('LIVEKIT_API_KEY') || 'APItestkey12345';
     this.apiSecret = this.configService.get<string>('LIVEKIT_API_SECRET') || 'SECtestsecret1234567890abcdef';
     this.wsUrl = this.configService.get<string>('LIVEKIT_URL') || 'wss://unitimebank-livekit.livekit.cloud';
+    this.roomServiceClient = new RoomServiceClient(
+      this.wsUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:'),
+      this.apiKey,
+      this.apiSecret,
+    );
   }
 
   async generateToken(params: {
@@ -48,5 +54,16 @@ export class LiveKitService {
 
   getWsUrl(): string {
     return this.wsUrl;
+  }
+
+  async removeParticipant(roomName: string, identity: string): Promise<void> {
+    try {
+      await this.roomServiceClient.removeParticipant(roomName, identity);
+    } catch (error) {
+      this.logger.warn(
+        `Không thể ngắt participant ${identity} khỏi phòng ${roomName}`,
+        error,
+      );
+    }
   }
 }

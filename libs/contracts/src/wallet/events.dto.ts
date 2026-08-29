@@ -25,6 +25,8 @@ export class CreditDeductEventDto {
   learnerId: string;
   mentorId: string;
   amount: number; // e.g. 1 credit per minute
+  chargeKey: string;
+  minuteIndex: number;
 }
 
 export class CreditRefundEventDto {
