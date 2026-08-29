@@ -46,6 +46,18 @@ export class RoomSession {
   @Column({ type: 'enum', enum: RoomCloseReason, nullable: true })
   closeReason: RoomCloseReason;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  title?: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  category?: string;
+
+  @Column({ type: 'int', name: 'max_participants', nullable: true, default: 20 })
+  maxParticipants?: number;
+
+  @Column({ name: 'post_id', type: 'varchar', nullable: true })
+  postId?: string;
+
   @OneToMany(() => RoomParticipant, (p) => p.roomSession)
   participants: RoomParticipant[];
 

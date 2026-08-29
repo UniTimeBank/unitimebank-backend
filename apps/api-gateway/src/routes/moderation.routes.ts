@@ -17,11 +17,13 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@app/common/guards/jwt-auth.guard';
+import { RolesGuard, Roles } from '@app/common/guards';
 import { ModerationClient } from '../clients/moderation.client';
 import {
   CreateRatingDto,
   CreateViolationReportDto,
   ResolveReportDto,
+  Role,
 } from '@app/contracts';
 
 @ApiTags('Moderation - Đánh giá, Điểm uy tín & Khiếu nại vi phạm')
@@ -120,7 +122,8 @@ export class ModerationRoutes {
   }
 
   @Get('reports')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.MODERATOR)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Quản trị viên lấy danh sách toàn bộ báo cáo vi phạm' })
   @ApiQuery({ name: 'status', required: false })
@@ -139,7 +142,8 @@ export class ModerationRoutes {
   }
 
   @Put('reports/:id/resolve')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.MODERATOR)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Quản trị viên xử lý báo cáo vi phạm' })
   async resolveReport(

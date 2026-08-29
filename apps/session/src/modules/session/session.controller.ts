@@ -205,10 +205,10 @@ export class SessionController {
       roomId: string;
       message?: string;
       content?: string;
-        attachmentUrl?: string;
-        attachmentName?: string;
-        attachmentPublicId?: string;
-        attachmentResourceType?: 'image' | 'raw' | 'video';
+      attachmentUrl?: string;
+      attachmentName?: string;
+      attachmentPublicId?: string;
+      attachmentResourceType?: 'image' | 'raw' | 'video';
     },
   ) {
     try {

@@ -22,7 +22,7 @@ import {
   ScreenRecording,
   HostAction,
   ConnectionEvent,
-} from './modules/session/entities';
+} from './entities';
 import {
   RoomType,
   RoomStatus,
@@ -34,7 +34,7 @@ import {
   GetActiveGroupRoomsQueryDto,
   LiveKitTokenResponse,
 } from '@app/contracts/session';
-import { EventType, HostActionType as LocalHostActionType } from './modules/session/enums';
+import { EventType, HostActionType as LocalHostActionType } from './enums';
 import { NOTIFICATION_EVENTS } from '@app/contracts/events';
 import { LiveKitService } from '@app/common/livekit';
 import { CloudinaryService } from '@app/common/cloudinary';
@@ -420,6 +420,10 @@ export class SessionService {
       mentorId: userId,
       livekitRoomName: `utb-group-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       status: RoomStatus.IN_PROGRESS,
+      title: dto.title?.trim() || 'Phòng học nhóm trực tuyến',
+      category: dto.category?.trim() || undefined,
+      maxParticipants: dto.maxParticipants ? Math.max(1, dto.maxParticipants) : 20,
+      postId: dto.postId || undefined,
       openedAt: new Date(),
     });
     const savedRoom = await this.roomRepo.save(room);
@@ -471,6 +475,16 @@ export class SessionService {
     const isMentor = room.mentorId === userId;
     const role = isMentor ? ParticipantRole.MENTOR : ParticipantRole.LEARNER;
 
+    // Kiểm tra giới hạn số người tham gia tối đa (nếu có)
+    if (room.maxParticipants && !isMentor) {
+      const activeCount = await this.participantRepo.count({
+        where: { roomId: room.id, connectionStatus: ConnectionStatus.ONLINE },
+      });
+      if (activeCount >= room.maxParticipants) {
+        throw new BadRequestException('Phòng học nhóm đã đạt giới hạn số người tham gia tối đa.');
+      }
+    }
+
     let availableBalance = 0;
 
     // Learner cần ít nhất 1 Credit để có thể tiếp tục sau 5 phút miễn phí.
@@ -512,6 +526,7 @@ export class SessionService {
         throw new ForbiddenException('Bạn đã bị mời ra khỏi phòng học này.');
       }
       participant.connectionStatus = ConnectionStatus.ONLINE;
+      participant.joinedAt = new Date();
       participant.leftAt = null as any;
       participant.lastHeartbeatAt = null;
       await this.participantRepo.save(participant);
@@ -643,8 +658,13 @@ export class SessionService {
       .createQueryBuilder('room')
       .leftJoinAndSelect('room.participants', 'participant')
       .where('room.roomType = :type', { type: RoomType.GROUP })
-      .andWhere('room.status = :status', { status: RoomStatus.IN_PROGRESS })
-      .orderBy('room.openedAt', 'DESC');
+      .andWhere('room.status = :status', { status: RoomStatus.IN_PROGRESS });
+
+    if (query.category) {
+      qb.andWhere('room.category = :category', { category: query.category });
+    }
+
+    qb.orderBy('room.openedAt', 'DESC');
 
     const limit = query.limit || 20;
     const page = query.page || 1;
@@ -659,7 +679,10 @@ export class SessionService {
       return {
         roomId: r.id,
         mentorId: r.mentorId,
-        title: 'Phòng học nhóm trực tuyến',
+        title: r.title || 'Phòng học nhóm trực tuyến',
+        category: r.category,
+        maxParticipants: r.maxParticipants || 20,
+        postId: r.postId,
         currentParticipants: activeCount,
         openedAt: r.openedAt,
         status: r.status,
@@ -701,7 +724,10 @@ export class SessionService {
       return {
         roomId: r.id,
         mentorId: r.mentorId,
-        title: 'Phòng học nhóm trực tuyến',
+        title: r.title || 'Phòng học nhóm trực tuyến',
+        category: r.category,
+        maxParticipants: r.maxParticipants || 20,
+        postId: r.postId,
         totalParticipants,
         openedAt: r.openedAt,
         closedAt: r.closedAt,
@@ -1227,4 +1253,3 @@ export class SessionService {
     }
   }
 }
-

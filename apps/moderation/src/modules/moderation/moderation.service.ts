@@ -1,7 +1,8 @@
-import { Injectable, Logger, BadRequestException, NotFoundException, Inject, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Inject, OnModuleInit, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ClientProxy } from '@nestjs/microservices';
+import { ClientProxy, RpcException } from '@nestjs/microservices';
+import { firstValueFrom, timeout } from 'rxjs';
 import {
   PostSessionRating,
   ViolationReport,
@@ -49,6 +50,8 @@ export class ModerationService implements OnModuleInit {
     private readonly actionRepo: Repository<AccountModerationAction>,
     @Inject('RABBITMQ_SERVICE')
     private readonly rmqClient: ClientProxy,
+    @Inject('BOOKING_SERVICE')
+    private readonly bookingClient: ClientProxy,
   ) { }
 
   async onModuleInit() {
@@ -84,7 +87,50 @@ export class ModerationService implements OnModuleInit {
 
   async createRating(reviewerId: string, dto: CreateRatingDto) {
     const stars = Math.max(1, Math.min(5, Math.round(dto.stars)));
-    const targetUserId = dto.mentorId || dto.learnerId;
+    let targetUserId = dto.mentorId || dto.learnerId;
+
+    // 1. Xác thực thông tin Booking từ BookingService
+    if (dto.bookingId) {
+      try {
+        const booking = await firstValueFrom(
+          this.bookingClient
+            .send('booking.findById', { id: dto.bookingId })
+            .pipe(timeout(5000)),
+        );
+
+        if (!booking) {
+          throw new RpcException({
+            status: 404,
+            message: 'Không tìm thấy thông tin buổi học cần đánh giá.',
+          });
+        }
+
+        if (booking.status !== 'COMPLETED') {
+          throw new RpcException({
+            status: 400,
+            message: `Chỉ có thể đánh giá khi buổi học đã kết thúc hoàn tất (COMPLETED). Trạng thái hiện tại: ${booking.status}.`,
+          });
+        }
+
+        const isLearner = String(booking.learnerId) === String(reviewerId);
+        const isMentor = String(booking.mentorId) === String(reviewerId);
+
+        if (!isLearner && !isMentor) {
+          throw new RpcException({
+            status: 403,
+            message: 'Bạn không phải là thành viên của buổi học này để gửi đánh giá.',
+          });
+        }
+
+        // Tự động xác định targetUserId nếu chưa có
+        if (!targetUserId) {
+          targetUserId = isLearner ? booking.mentorId : booking.learnerId;
+        }
+      } catch (err: any) {
+        if (err instanceof RpcException) throw err;
+        this.logger.warn(`Could not verify booking ${dto.bookingId} over RMQ:`, err);
+      }
+    }
 
     let reviewerName = dto.reviewerName?.trim();
     let reviewerAvatar = dto.reviewerAvatar?.trim();

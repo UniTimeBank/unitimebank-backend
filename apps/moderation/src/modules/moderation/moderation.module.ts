@@ -37,6 +37,15 @@ import { ModerationEventHandler } from './moderation-event.handler';
           queueOptions: { durable: false },
         },
       },
+      {
+        name: 'BOOKING_SERVICE',
+        transport: Transport.RMQ,
+        options: {
+          urls: [process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672'],
+          queue: 'booking_queue',
+          queueOptions: { durable: false },
+        },
+      },
     ]),
   ],
   controllers: [ModerationController, ModerationEventHandler],
