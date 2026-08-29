@@ -491,7 +491,7 @@ export class SessionService {
     if (!isMentor) {
       try {
         const wallet = await firstValueFrom(
-          this.walletClient.send('wallet.getWallet', { userId }).pipe(timeout(5000)),
+          this.walletClient.send('wallet.findOne', { userId }).pipe(timeout(5000)),
         );
         availableBalance = wallet?.availableBalance || 0;
         if (availableBalance < 1) {
@@ -676,6 +676,7 @@ export class SessionService {
       const activeCount = (r.participants || []).filter(
         (p) => p.connectionStatus === ConnectionStatus.ONLINE,
       ).length;
+      const participantUserIds = (r.participants || []).map((p) => p.userId);
       return {
         roomId: r.id,
         mentorId: r.mentorId,
@@ -684,6 +685,7 @@ export class SessionService {
         maxParticipants: r.maxParticipants || 20,
         postId: r.postId,
         currentParticipants: activeCount,
+        participantUserIds,
         openedAt: r.openedAt,
         status: r.status,
       };

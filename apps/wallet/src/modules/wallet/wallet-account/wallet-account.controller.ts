@@ -15,6 +15,7 @@ export class WalletAccountController {
   }
 
   @MessagePattern('wallet.findOne')
+  @MessagePattern('wallet.getWallet')
   async findOne(@Payload() data: { userId: string }) {
     if (!data?.userId) return null;
     return this.walletAccountService.getWalletResponse(data.userId);
