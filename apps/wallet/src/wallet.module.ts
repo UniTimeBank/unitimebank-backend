@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
+import { types } from 'pg';
+
+// Đảm bảo timestamp without time zone (OID 1114) từ PostgreSQL luôn được parse chuẩn UTC,
+// tránh việc driver pg tự động trừ 7 tiếng khi chạy trên Node server múi giờ GMT+7 (Việt Nam)
+types.setTypeParser(1114, (str: string) => new Date(str.replace(' ', 'T') + 'Z'));
 
 import { Wallet, CreditLedgerEntry, EscrowHold, SessionCharge, RewardGrant, LowBalanceAlert } from './modules/wallet/entities';
 

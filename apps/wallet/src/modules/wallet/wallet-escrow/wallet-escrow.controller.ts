@@ -90,4 +90,21 @@ export class WalletEscrowController {
     if (!data?.bookingId || !data?.learnerId) return;
     return this.walletEscrowService.refundEscrow(data);
   }
+
+  // ════════════════════════════════════════════════════════════════
+  // 5. RELEASE GROUP ESCROW: wallet.releaseGroupEscrow (Event + Message)
+  // ════════════════════════════════════════════════════════════════
+  @EventPattern('wallet.releaseGroupEscrow')
+  async handleReleaseGroupEscrowEvent(@Payload() data: { roomId: string; mentorId: string; amount: number }) {
+    this.logger.log(`[Event wallet.releaseGroupEscrow] Received: ${JSON.stringify(data)}`);
+    if (!data?.roomId || !data?.mentorId) return;
+    return this.walletEscrowService.releaseGroupEscrow(data);
+  }
+
+  @MessagePattern('wallet.releaseGroupEscrow')
+  async handleReleaseGroupEscrowMessage(@Payload() data: { roomId: string; mentorId: string; amount: number }) {
+    this.logger.log(`[Message wallet.releaseGroupEscrow] Received: ${JSON.stringify(data)}`);
+    if (!data?.roomId || !data?.mentorId) return;
+    return this.walletEscrowService.releaseGroupEscrow(data);
+  }
 }

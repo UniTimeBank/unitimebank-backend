@@ -1,6 +1,10 @@
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { types } from 'pg';
 import { WalletModule } from './wallet.module';
+
+// Đảm bảo timestamp without time zone (OID 1114) từ PostgreSQL luôn được parse chuẩn UTC
+types.setTypeParser(1114, (str: string) => new Date(str.replace(' ', 'T') + 'Z'));
 
 async function bootstrap() {
   const app = await NestFactory.create(WalletModule);

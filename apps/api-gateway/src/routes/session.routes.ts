@@ -112,6 +112,15 @@ export class SessionRoutes {
     return this.sessionClient.send('session.closeGroup', { userId, roomId });
   }
 
+  @Get('group/:roomId/stats')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy thống kê quỹ tạm giữ và chi tiết học viên trong phòng' })
+  async getGroupRoomStats(@Param('roomId') roomId: string, @Req() req: any) {
+    const userId = req.user.id;
+    return this.sessionClient.send('session.getGroupRoomStats', { userId, roomId });
+  }
+
   @Get('group/active')
   @ApiOperation({ summary: 'Lấy danh sách các phòng học nhóm đang hoạt động' })
   @ApiQuery({ name: 'category', required: false })

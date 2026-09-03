@@ -125,4 +125,8 @@ export interface LiveKitTokenResponse {
   escrowedCredit?: number;
   availableBalance?: number;
   canJoin: boolean;
+  freeSecondsRemaining?: number;
+  activeSeconds?: number;
+  paidSeconds?: number;
+  creditsCharged?: number;
 }

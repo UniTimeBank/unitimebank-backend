@@ -137,6 +137,52 @@ export class WalletEscrowService {
   }
 
   /**
+   * Giải phóng tiền ký quỹ phòng nhóm cho Mentor khi đóng phòng (closeGroupRoom)
+   */
+  async releaseGroupEscrow(data: {
+    roomId: string;
+    mentorId: string;
+    amount: number;
+  }) {
+    this.logger.log(`[releaseGroupEscrow] Starting for room ${data.roomId}, mentor ${data.mentorId}, amount: ${data.amount}`);
+    const transferAmount = Number(data.amount) || 0;
+    if (transferAmount <= 0) {
+      this.logger.log(`[releaseGroupEscrow] Room ${data.roomId} had 0 credits to release`);
+      return { success: true, creditsTransferred: 0 };
+    }
+
+    if (!data.mentorId) {
+      this.logger.error(`[releaseGroupEscrow] Missing mentorId for room ${data.roomId}`);
+      return { success: false, message: 'Thiếu mentorId' };
+    }
+
+    // 1. Trừ escrowedBalance và cộng availableBalance, totalEarned cho Mentor
+    const mentorWallet = await this.walletAccountService.findOrCreateWallet(data.mentorId);
+    mentorWallet.escrowedBalance = Math.max(0, Number(mentorWallet.escrowedBalance || 0) - transferAmount);
+    mentorWallet.availableBalance = Number(mentorWallet.availableBalance) + transferAmount;
+    mentorWallet.totalEarned = Number(mentorWallet.totalEarned) + transferAmount;
+    const savedMentorWallet = await this.walletAccountService['walletRepo'].save(mentorWallet);
+
+    // 2. Ghi đúng 1 bản ghi sổ cái duy nhất cho Mentor khi phòng đóng thành công
+    await this.walletLedgerService.recordEntry({
+      walletId: savedMentorWallet.id,
+      userId: data.mentorId,
+      direction: LedgerDirection.CREDIT,
+      entryType: EntryType.ESCROW_RELEASE,
+      amount: transferAmount,
+      balanceAfter: savedMentorWallet.availableBalance,
+      referenceId: data.roomId,
+      referenceKind: ReferenceKind.SESSION_ROOM,
+    });
+
+    this.logger.log(
+      `[releaseGroupEscrow] Successfully released ${transferAmount} credits to mentor ${data.mentorId} for room ${data.roomId}. New availableBalance: ${savedMentorWallet.availableBalance}`,
+    );
+
+    return { success: true, creditsTransferred: transferAmount };
+  }
+
+  /**
    * Hoàn trả tiền ký quỹ cho Learner khi hủy booking (wallet.refundEscrow)
    */
   async refundEscrow(data: {

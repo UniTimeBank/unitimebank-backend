@@ -119,6 +119,49 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   /**
+   * Đồng bộ Credit tạm giữ thời gian thực giữa Học viên và Host
+   */
+  @SubscribeMessage('metering-tick')
+  async handleMeteringTick(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      roomId: string;
+      userId: string;
+      activeSeconds: number;
+      paidSeconds: number;
+      credits: number;
+    },
+  ) {
+    const userId = data.userId || client.data.userId;
+    const roomId = data.roomId;
+    if (!roomId || !userId) return { success: false };
+
+    // 1. Ghi nhận thời gian và trừ ví atomic trên database
+    this.sessionClient
+      .send('session.meteringTick', {
+        userId,
+        roomId,
+        activeSeconds: data.activeSeconds,
+      })
+      .catch((err) => {
+        this.logger.warn(`Failed to process meteringTick for user ${userId}:`, err);
+      });
+
+    // 2. Broadcast tức thì tới Host
+    const nsp = client.nsp || this.server;
+    nsp.to(`room_${roomId}`).emit('escrow-metering-update', {
+      userId,
+      activeSeconds: data.activeSeconds,
+      paidSeconds: data.paidSeconds,
+      credits: data.credits,
+      timestamp: new Date().toISOString(),
+    });
+
+    return { success: true };
+  }
+
+  /**
    * Heartbeat gửi mỗi 60 giây để duy trì trạng thái & trừ Credit
    */
   @SubscribeMessage('heartbeat')

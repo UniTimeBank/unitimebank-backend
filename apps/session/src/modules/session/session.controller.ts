@@ -114,6 +114,35 @@ export class SessionController {
     }
   }
 
+  @MessagePattern('session.getGroupRoomStats')
+  async getGroupRoomStats(@Payload() data: { userId: string; roomId: string }) {
+    try {
+      return await this.sessionService.getGroupRoomStats(data.userId, data.roomId);
+    } catch (err: any) {
+      this.logger.error(`[session.getGroupRoomStats] Error:`, err?.stack || err);
+      throw new RpcException({
+        status: err?.status || err?.statusCode || 400,
+        message: err?.message || 'Không thể lấy thống kê phòng học nhóm',
+      });
+    }
+  }
+
+  @MessagePattern('session.meteringTick')
+  async handleMeteringTick(
+    @Payload() data: { userId: string; roomId: string; activeSeconds: number },
+  ) {
+    try {
+      return await this.sessionService.syncGroupMetering(
+        data.userId,
+        data.roomId,
+        data.activeSeconds,
+      );
+    } catch (err: any) {
+      this.logger.error(`[session.meteringTick] Error:`, err?.stack || err);
+      return { success: false, error: err?.message };
+    }
+  }
+
   @MessagePattern('session.getActiveGroupRooms')
   async getActiveGroupRooms(@Payload() data: { query: GetActiveGroupRoomsQueryDto }) {
     try {

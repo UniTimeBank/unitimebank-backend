@@ -519,16 +519,36 @@ export class SessionService {
         role,
         joinedAt: new Date(),
         connectionStatus: ConnectionStatus.ONLINE,
+        lastHeartbeatAt: new Date(),
       });
       await this.participantRepo.save(participant);
     } else {
       if (participant.isKicked) {
         throw new ForbiddenException('Bạn đã bị mời ra khỏi phòng học này.');
       }
+      const now = new Date();
+      // Nếu reconnect / F5 khi đang online, cộng dồn thời gian đã trôi qua chính xác
+      if (participant.connectionStatus === ConnectionStatus.ONLINE && participant.joinedAt) {
+        const lastAnchor = participant.lastHeartbeatAt || participant.joinedAt;
+        const sessionElapsed = Math.max(
+          0,
+          Math.floor((now.getTime() - new Date(lastAnchor).getTime()) / 1000),
+        );
+        participant.activeSeconds =
+          (participant.activeSeconds || 0) +
+          Math.min(sessionElapsed, this.GROUP_HEARTBEAT_MAX_GAP_SECONDS);
+
+        if (!isMentor) {
+          const billing = await this.settleGroupParticipantBilling(room, participant, now);
+          if (billing.newBalance !== undefined) {
+            availableBalance = billing.newBalance;
+          }
+        }
+      }
       participant.connectionStatus = ConnectionStatus.ONLINE;
-      participant.joinedAt = new Date();
+      participant.joinedAt = now;
       participant.leftAt = null as any;
-      participant.lastHeartbeatAt = null;
+      participant.lastHeartbeatAt = now;
       await this.participantRepo.save(participant);
     }
 
@@ -541,6 +561,10 @@ export class SessionService {
 
     await this.recordConnectionEvent(room.id, participant.id, EventType.CONNECTED);
 
+    const activeSeconds = participant.activeSeconds || 0;
+    const freeSecondsRemaining = Math.max(0, this.GROUP_FREE_SECONDS - activeSeconds);
+    const paidSeconds = Math.max(0, activeSeconds - this.GROUP_FREE_SECONDS);
+
     return {
       roomId: room.id,
       roomType: RoomType.GROUP,
@@ -552,6 +576,10 @@ export class SessionService {
       mentorId: room.mentorId,
       availableBalance,
       canJoin: true,
+      freeSecondsRemaining,
+      activeSeconds,
+      paidSeconds,
+      creditsCharged: participant.creditCharged || 0,
     };
   }
 
@@ -638,6 +666,38 @@ export class SessionService {
       await this.participantRepo.save(participant);
     }
 
+    // 1. Tính tổng số Credit đã trừ từ tất cả học viên trong phòng này
+    const allLearners = await this.participantRepo.find({
+      where: { roomId, role: ParticipantRole.LEARNER },
+    });
+    const totalPoolCredits = allLearners.reduce(
+      (sum, l) => sum + (Number(l.creditCharged) || 0),
+      0,
+    );
+
+    // 2. Giải phóng toàn bộ quỹ tạm giữ (Group Escrow) sang ví khả dụng của Mentor khi đóng phòng
+    if (totalPoolCredits > 0) {
+      try {
+        await firstValueFrom(
+          this.walletClient
+            .send('wallet.releaseGroupEscrow', {
+              roomId: room.id,
+              mentorId: room.mentorId,
+              amount: totalPoolCredits,
+            })
+            .pipe(timeout(8000)),
+        );
+        this.logger.log(
+          `[closeGroupRoom] Successfully released ${totalPoolCredits} credits to mentor ${room.mentorId} for room ${room.id}`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `[closeGroupRoom] Failed to release group escrow for room ${room.id}:`,
+          err,
+        );
+      }
+    }
+
     room.status = RoomStatus.COMPLETED;
     room.closedAt = closedAt;
     await this.roomRepo.save(room);
@@ -647,6 +707,85 @@ export class SessionService {
       roomId,
       status: RoomStatus.COMPLETED,
       closedAt: room.closedAt,
+      creditsTransferred: totalPoolCredits,
+    };
+  }
+
+  /**
+   * GET /rooms/group/:roomId/stats — Lấy thống kê quỹ tạm giữ & đóng góp của học viên
+   */
+  async getGroupRoomStats(userId: string, roomId: string) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room) {
+      throw new NotFoundException('Không tìm thấy phòng học nhóm.');
+    }
+
+    const participants = await this.participantRepo.find({
+      where: { roomId, role: ParticipantRole.LEARNER },
+      order: { joinedAt: 'ASC' },
+    });
+
+    // Deduplicate learners by userId (bảo vệ trường hợp cùng 1 user có nhiều bản ghi tham gia phòng)
+    const uniqueMap = new Map<string, RoomParticipant>();
+    for (const p of participants) {
+      if (!uniqueMap.has(p.userId)) {
+        uniqueMap.set(p.userId, p);
+      } else {
+        const existing = uniqueMap.get(p.userId)!;
+        existing.activeSeconds = Math.max(existing.activeSeconds || 0, p.activeSeconds || 0);
+        existing.creditCharged = Math.max(existing.creditCharged || 0, p.creditCharged || 0);
+        if (p.connectionStatus === ConnectionStatus.ONLINE) {
+          existing.connectionStatus = ConnectionStatus.ONLINE;
+          existing.lastHeartbeatAt = p.lastHeartbeatAt || existing.lastHeartbeatAt;
+        }
+      }
+    }
+    const dedupedParticipants = Array.from(uniqueMap.values());
+
+    const now = new Date();
+    const learners = dedupedParticipants.map((p) => {
+      let activeSecs = p.activeSeconds || 0;
+      if (p.connectionStatus === ConnectionStatus.ONLINE && p.lastHeartbeatAt) {
+        const gap = Math.max(
+          0,
+          Math.floor((now.getTime() - new Date(p.lastHeartbeatAt).getTime()) / 1000),
+        );
+        activeSecs += Math.min(gap, this.GROUP_HEARTBEAT_MAX_GAP_SECONDS);
+      }
+
+      const freeRemaining = Math.max(0, this.GROUP_FREE_SECONDS - activeSecs);
+      const paidSecs = Math.max(0, activeSecs - this.GROUP_FREE_SECONDS);
+      const paidMins = Math.floor(paidSecs / 60);
+      const credits = Math.max(p.creditCharged || 0, paidMins);
+
+      return {
+        id: p.id,
+        userId: p.userId,
+        role: p.role,
+        connectionStatus: p.connectionStatus,
+        joinedAt: p.joinedAt,
+        leftAt: p.leftAt,
+        activeSeconds: activeSecs,
+        freeSecondsRemaining: freeRemaining,
+        paidMinutes: paidMins,
+        creditsContributed: credits,
+      };
+    });
+
+    const totalPoolCredits = learners.reduce((sum, l) => sum + l.creditsContributed, 0);
+
+    return {
+      roomId: room.id,
+      title: room.title,
+      mentorId: room.mentorId,
+      status: room.status,
+      openedAt: room.openedAt || new Date(),
+      accumulatedCredits: totalPoolCredits,
+      totalLearnersCount: learners.length,
+      activeLearnersCount: learners.filter(
+        (l) => l.connectionStatus === ConnectionStatus.ONLINE,
+      ).length,
+      learners,
     };
   }
 
@@ -903,6 +1042,39 @@ export class SessionService {
         this.GROUP_FREE_SECONDS - (participant.activeSeconds || 0),
       ),
       totalCreditsCharged: participant.creditCharged || 0,
+    };
+  }
+
+  /**
+   * Đồng bộ hóa số giây và trừ Credit tức thì khi Learner nhảy phút trả phí mới
+   */
+  async syncGroupMetering(
+    userId: string,
+    roomId: string,
+    activeSeconds: number,
+  ) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room || room.roomType !== RoomType.GROUP) return { success: false };
+
+    const participant = await this.participantRepo.findOne({
+      where: { roomId, userId },
+    });
+    if (!participant || participant.role !== ParticipantRole.LEARNER) {
+      return { success: false };
+    }
+
+    if (activeSeconds > (participant.activeSeconds || 0)) {
+      participant.activeSeconds = activeSeconds;
+    }
+    const now = new Date();
+    participant.lastHeartbeatAt = now;
+    const billing = await this.settleGroupParticipantBilling(room, participant, now);
+    return {
+      success: true,
+      activeSeconds: participant.activeSeconds,
+      creditDeducted: billing.creditDeducted,
+      newBalance: billing.newBalance,
+      insufficientBalance: billing.insufficientBalance,
     };
   }
 

@@ -120,8 +120,8 @@ export class WalletTransactionService {
 
       learnerWallet.availableBalance -= data.amount;
       learnerWallet.totalSpent += data.amount;
-      mentorWallet.availableBalance += data.amount;
-      mentorWallet.totalEarned += data.amount;
+      // Host không nhận trực tiếp vào availableBalance từng phút mà đưa vào quỹ tạm giữ (escrow)
+      mentorWallet.escrowedBalance = Number(mentorWallet.escrowedBalance || 0) + data.amount;
       await walletRepo.save([learnerWallet, mentorWallet]);
 
       const debitEntry = await ledgerRepo.save(
@@ -136,18 +136,8 @@ export class WalletTransactionService {
           referenceKind: ReferenceKind.SESSION_ROOM,
         }),
       );
-      await ledgerRepo.save(
-        ledgerRepo.create({
-          walletId: mentorWallet.id,
-          userId: data.mentorId,
-          direction: LedgerDirection.CREDIT,
-          entryType: EntryType.HEARTBEAT_DEDUCT,
-          amount: data.amount,
-          balanceAfter: mentorWallet.availableBalance,
-          referenceId: data.chargeKey,
-          referenceKind: ReferenceKind.SESSION_ROOM,
-        }),
-      );
+
+      // Ghi nhận phiên trừ tiền của học viên vào quỹ phòng nhóm
       await chargeRepo.save(
         chargeRepo.create({
           roomId: data.roomId,
