@@ -6,6 +6,7 @@ import {
   Inject,
   Logger,
   ServiceUnavailableException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -40,7 +41,7 @@ import { LiveKitService } from '@app/common/livekit';
 import { CloudinaryService } from '@app/common/cloudinary';
 
 @Injectable()
-export class SessionService {
+export class SessionService implements OnModuleInit {
   private readonly logger = new Logger(SessionService.name);
   private readonly GROUP_FREE_SECONDS = 5 * 60;
   private readonly GROUP_HEARTBEAT_MAX_GAP_SECONDS = 90;
@@ -72,6 +73,117 @@ export class SessionService {
     private readonly livekitService: LiveKitService,
     private readonly cloudinaryService: CloudinaryService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.roomRepo.query(`
+        DO $$
+        BEGIN
+          ALTER TABLE "room_session" ADD COLUMN IF NOT EXISTS "host_disconnected_at" TIMESTAMPTZ NULL;
+        EXCEPTION
+          WHEN others THEN null;
+        END $$;
+      `);
+      await this.roomRepo.query(`
+        DO $$
+        BEGIN
+          ALTER TYPE "room_session_closereason_enum" ADD VALUE IF NOT EXISTS 'HOST_ABSENT_TIMEOUT';
+        EXCEPTION
+          WHEN others THEN null;
+        END $$;
+      `);
+      this.logger.log('Session table columns & enums verified');
+    } catch (err) {
+      this.logger.warn('Error running session migrations in onModuleInit:', err);
+    }
+  }
+
+  /**
+   * Kiểm tra xem Chủ phòng (Mentor) của phòng học nhóm có đang hiện diện (ONLINE) hay không
+   */
+  async isHostPresentInGroupRoom(room: RoomSession): Promise<boolean> {
+    const hostParticipant = await this.participantRepo.findOne({
+      where: {
+        roomId: room.id,
+        userId: room.mentorId,
+      },
+    });
+
+    if (!hostParticipant) return false;
+    if (hostParticipant.connectionStatus !== ConnectionStatus.ONLINE) return false;
+
+    // Kiểm tra nhịp tim hoặc thời gian tham gia gần nhất của Host: nếu quá 90s không tương tác thì coi là vắng mặt
+    const lastActive = hostParticipant.lastHeartbeatAt || hostParticipant.joinedAt;
+    if (lastActive) {
+      const gapSeconds =
+        (Date.now() - new Date(lastActive).getTime()) / 1000;
+      if (gapSeconds > this.GROUP_HEARTBEAT_MAX_GAP_SECONDS) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Lấy trạng thái hiện diện và thời gian vắng mặt của Host trong phòng học nhóm
+   */
+  async getHostPresence(roomId: string) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room || room.roomType !== RoomType.GROUP) {
+      return { roomId, isHostPresent: true, hostAbsentSecondsRemaining: 300 };
+    }
+
+    const isHostPresent = await this.isHostPresentInGroupRoom(room);
+    let hostAbsentSecondsRemaining = 300;
+    if (!isHostPresent) {
+      if (!room.hostDisconnectedAt) {
+        room.hostDisconnectedAt = new Date();
+        await this.roomRepo.save(room);
+      }
+      const elapsed = Math.floor(
+        (Date.now() - new Date(room.hostDisconnectedAt).getTime()) / 1000,
+      );
+      hostAbsentSecondsRemaining = Math.max(0, 300 - elapsed);
+    }
+
+    return {
+      roomId: room.id,
+      isHostPresent,
+      hostDisconnectedAt: room.hostDisconnectedAt
+        ? new Date(room.hostDisconnectedAt).toISOString()
+        : null,
+      hostAbsentSecondsRemaining,
+    };
+  }
+
+  /**
+   * Ghi nhận Host ngắt kết nối khỏi phòng học nhóm
+   */
+  async recordHostDisconnected(
+    roomId: string,
+    userId: string,
+    disconnectedAt?: string | Date,
+  ) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (room && room.roomType === RoomType.GROUP && room.mentorId === userId) {
+      if (!room.hostDisconnectedAt) {
+        room.hostDisconnectedAt = disconnectedAt
+          ? new Date(disconnectedAt)
+          : new Date();
+        await this.roomRepo.save(room);
+      }
+      const hostParticipant = await this.participantRepo.findOne({
+        where: { roomId, userId },
+      });
+      if (hostParticipant) {
+        hostParticipant.connectionStatus = ConnectionStatus.DISCONNECTED;
+        hostParticipant.leftAt = room.hostDisconnectedAt;
+        await this.participantRepo.save(hostParticipant);
+      }
+    }
+    return { success: true };
+  }
 
   // ════════════════════════════════════════════════════════════════
   // 1. PHÒNG HỌC 1:1 (ONE-ON-ONE ROOMS)
@@ -433,6 +545,7 @@ export class SessionService {
       userId,
       role: ParticipantRole.MENTOR,
       joinedAt: new Date(),
+      lastHeartbeatAt: new Date(),
       connectionStatus: ConnectionStatus.ONLINE,
     });
     await this.participantRepo.save(mentorParticipant);
@@ -552,6 +665,11 @@ export class SessionService {
       await this.participantRepo.save(participant);
     }
 
+    if (isMentor && room.hostDisconnectedAt) {
+      room.hostDisconnectedAt = null;
+      await this.roomRepo.save(room);
+    }
+
     const { token, wsUrl } = await this.livekitService.generateToken({
       roomName: room.livekitRoomName,
       identity: userId,
@@ -564,6 +682,20 @@ export class SessionService {
     const activeSeconds = participant.activeSeconds || 0;
     const freeSecondsRemaining = Math.max(0, this.GROUP_FREE_SECONDS - activeSeconds);
     const paidSeconds = Math.max(0, activeSeconds - this.GROUP_FREE_SECONDS);
+
+    // Kiểm tra trạng thái hiện diện thực tế của Host và số giây đếm ngược hủy phòng còn lại
+    const isHostPresent = await this.isHostPresentInGroupRoom(room);
+    let hostAbsentSecondsRemaining = 300;
+    if (!isHostPresent && !isMentor) {
+      if (!room.hostDisconnectedAt) {
+        room.hostDisconnectedAt = new Date();
+        await this.roomRepo.save(room);
+      }
+      const elapsed = Math.floor(
+        (Date.now() - new Date(room.hostDisconnectedAt!).getTime()) / 1000,
+      );
+      hostAbsentSecondsRemaining = Math.max(0, 300 - elapsed);
+    }
 
     return {
       roomId: room.id,
@@ -580,6 +712,11 @@ export class SessionService {
       activeSeconds,
       paidSeconds,
       creditsCharged: participant.creditCharged || 0,
+      isHostPresent,
+      hostDisconnectedAt: room.hostDisconnectedAt
+        ? new Date(room.hostDisconnectedAt).toISOString()
+        : null,
+      hostAbsentSecondsRemaining,
     };
   }
 
@@ -627,6 +764,11 @@ export class SessionService {
 
     await this.participantRepo.save(participant);
     await this.recordConnectionEvent(roomId, participant.id, EventType.DISCONNECTED);
+
+    if (room?.roomType === RoomType.GROUP && room.mentorId === userId) {
+      room.hostDisconnectedAt = leftAt;
+      await this.roomRepo.save(room);
+    }
 
     return {
       roomId,
@@ -1006,6 +1148,43 @@ export class SessionService {
       return { success: false, reason: 'Participant not in room or kicked' };
     }
 
+    const now = new Date();
+    participant.lastHeartbeatAt = now;
+    await this.participantRepo.save(participant);
+
+    // Nếu người gửi heartbeat là Host (Mentor) của phòng học nhóm
+    if (room.roomType === RoomType.GROUP && room.mentorId === userId) {
+      if (room.hostDisconnectedAt) {
+        room.hostDisconnectedAt = null;
+        await this.roomRepo.save(room);
+      }
+      return {
+        success: true,
+        isHost: true,
+        lastHeartbeatAt: now,
+      };
+    }
+
+    // Nếu người gửi là Learner trong phòng nhóm: kiểm tra xem Host có đang hiện diện không
+    if (room.roomType === RoomType.GROUP && participant.role === ParticipantRole.LEARNER) {
+      const isHostPresent = await this.isHostPresentInGroupRoom(room);
+      if (!isHostPresent) {
+        // Chủ phòng vắng mặt: ĐÓNG BĂNG thời gian và credit, không trừ tiền
+        return {
+          tickId: null,
+          isFrozen: true,
+          creditDeducted: 0,
+          newBalance: undefined,
+          insufficientBalance: false,
+          freeSecondsRemaining: Math.max(
+            0,
+            this.GROUP_FREE_SECONDS - (participant.activeSeconds || 0),
+          ),
+          totalCreditsCharged: participant.creditCharged || 0,
+        };
+      }
+    }
+
     let billingResult: {
       creditDeducted: number;
       newBalance?: number;
@@ -1019,16 +1198,16 @@ export class SessionService {
       billingResult = await this.settleGroupParticipantBilling(
         room,
         participant,
-        new Date(),
+        now,
       );
     }
 
     const tick = this.heartbeatRepo.create({
       participantId: participant.id,
       roomId,
-      tickAt: new Date(),
+      tickAt: now,
       creditDeducted: billingResult.creditDeducted > 0,
-      emittedAt: new Date(),
+      emittedAt: now,
     });
     await this.heartbeatRepo.save(tick);
 
@@ -1061,6 +1240,20 @@ export class SessionService {
     });
     if (!participant || participant.role !== ParticipantRole.LEARNER) {
       return { success: false };
+    }
+
+    // Kiểm tra xem Chủ phòng có mặt không
+    const isHostPresent = await this.isHostPresentInGroupRoom(room);
+    if (!isHostPresent) {
+      // Chủ phòng vắng mặt: ĐÓNG BĂNG thời gian, không cập nhật activeSeconds và không trừ credit
+      return {
+        success: true,
+        isFrozen: true,
+        activeSeconds: participant.activeSeconds || 0,
+        creditDeducted: 0,
+        newBalance: undefined,
+        insufficientBalance: false,
+      };
     }
 
     if (activeSeconds > (participant.activeSeconds || 0)) {
@@ -1356,13 +1549,103 @@ export class SessionService {
     }
   }
 
+  /**
+   * Tự động hủy phòng học nhóm khi Host vắng mặt từ 5 phút (300s) trở lên
+   */
+  async killGroupRoomDueToHostAbsence(room: RoomSession) {
+    this.logger.warn(
+      `[killGroupRoomDueToHostAbsence] Đang tự động đóng phòng ${room.id} do chủ phòng vắng mặt quá 5 phút`,
+    );
+    const closedAt = new Date();
+
+    // 1. Cập nhật các học viên còn lại về DISCONNECTED
+    const activeLearners = await this.participantRepo.find({
+      where: {
+        roomId: room.id,
+        role: ParticipantRole.LEARNER,
+        connectionStatus: ConnectionStatus.ONLINE,
+      },
+    });
+    for (const participant of activeLearners) {
+      participant.connectionStatus = ConnectionStatus.DISCONNECTED;
+      participant.leftAt = closedAt;
+      participant.lastHeartbeatAt = null;
+      await this.participantRepo.save(participant);
+      await this.recordConnectionEvent(room.id, participant.id, EventType.DISCONNECTED);
+    }
+
+    // 2. Giải phóng số credit hợp lệ đã trừ từ trước khi Host vắng mặt sang ví Host (nếu có)
+    const allLearners = await this.participantRepo.find({
+      where: { roomId: room.id, role: ParticipantRole.LEARNER },
+    });
+    const totalPoolCredits = allLearners.reduce(
+      (sum, l) => sum + (Number(l.creditCharged) || 0),
+      0,
+    );
+
+    if (totalPoolCredits > 0) {
+      try {
+        await firstValueFrom(
+          this.walletClient
+            .send('wallet.releaseGroupEscrow', {
+              roomId: room.id,
+              mentorId: room.mentorId,
+              amount: totalPoolCredits,
+            })
+            .pipe(timeout(8000)),
+        );
+        this.logger.log(
+          `[killGroupRoomDueToHostAbsence] Đã giải phóng ${totalPoolCredits} credits cho mentor ${room.mentorId} của phòng ${room.id}`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `[killGroupRoomDueToHostAbsence] Lỗi giải ngân escrow cho phòng ${room.id}:`,
+          err,
+        );
+      }
+    }
+
+    // 3. Đóng phòng và lưu lý do HOST_ABSENT_TIMEOUT
+    room.status = RoomStatus.COMPLETED;
+    room.closedAt = closedAt;
+    room.closeReason = RoomCloseReason.HOST_ABSENT_TIMEOUT;
+    await this.roomRepo.save(room);
+
+    // 4. Giải phóng phòng LiveKit để ngắt toàn bộ kết nối WebRTC ngay lập tức
+    if (room.livekitRoomName) {
+      await this.livekitService.deleteRoom(room.livekitRoomName);
+    }
+
+    // 5. Bắn thông báo hệ thống qua notification service cho Host
+    try {
+      this.notificationClient.emit(NOTIFICATION_EVENTS.CREATE, {
+        userId: room.mentorId,
+        title: 'Phòng học nhóm đã đóng',
+        content: 'Phòng học nhóm của bạn đã tự động kết thúc do bạn vắng mặt quá 5 phút.',
+        type: 'SYSTEM',
+        referenceId: room.id,
+      });
+    } catch (nErr) {
+      this.logger.warn('Failed to emit notification for killed room:', nErr);
+    }
+
+    return {
+      roomId: room.id,
+      status: RoomStatus.COMPLETED,
+      closeReason: RoomCloseReason.HOST_ABSENT_TIMEOUT,
+      closedAt,
+    };
+  }
+
   // ════════════════════════════════════════════════════════════════
-  // 8. CRON JOB: AUTOMATED SESSION LIFECYCLE (OPEN & CLOSE)
+  // 8. CRON JOB: AUTOMATED SESSION LIFECYCLE (OPEN, CLOSE & KILL)
   // ════════════════════════════════════════════════════════════════
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron(CronExpression.EVERY_30_SECONDS)
   async handleAutomatedSessionLifecycle() {
-    // 1. Auto-close sessions that reached scheduledEnd
+    const now = new Date();
+
+    // 1. Tự động kết thúc phòng học 1:1 đã hết giờ theo lịch (scheduledEnd)
     try {
       const activeRooms = await this.roomRepo.find({
         where: {
@@ -1370,8 +1653,6 @@ export class SessionService {
           roomType: RoomType.ONE_ON_ONE,
         },
       });
-
-      const now = new Date();
 
       for (const room of activeRooms) {
         if (!room.bookingId) continue;
@@ -1424,6 +1705,44 @@ export class SessionService {
       }
     } catch (err) {
       this.logger.error('Error in auto-close session cron:', err);
+    }
+
+    // 2. Tự động kiểm tra và kill phòng học nhóm nếu Host vắng mặt >= 5 phút (300 giây)
+    try {
+      const activeGroupRooms = await this.roomRepo.find({
+        where: {
+          status: RoomStatus.IN_PROGRESS,
+          roomType: RoomType.GROUP,
+        },
+      });
+
+      for (const room of activeGroupRooms) {
+        const isHostPresent = await this.isHostPresentInGroupRoom(room);
+        if (!isHostPresent) {
+          if (!room.hostDisconnectedAt) {
+            const hostParticipant = await this.participantRepo.findOne({
+              where: { roomId: room.id, userId: room.mentorId },
+            });
+            room.hostDisconnectedAt =
+              hostParticipant?.leftAt || hostParticipant?.lastHeartbeatAt || now;
+            await this.roomRepo.save(room);
+          }
+
+          const absentSeconds =
+            (now.getTime() - new Date(room.hostDisconnectedAt).getTime()) / 1000;
+
+          if (absentSeconds >= 300) {
+            await this.killGroupRoomDueToHostAbsence(room);
+          }
+        } else {
+          if (room.hostDisconnectedAt) {
+            room.hostDisconnectedAt = null;
+            await this.roomRepo.save(room);
+          }
+        }
+      }
+    } catch (gErr) {
+      this.logger.error('Error in group room auto-kill cron:', gErr);
     }
   }
 }

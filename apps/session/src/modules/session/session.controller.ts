@@ -127,6 +127,32 @@ export class SessionController {
     }
   }
 
+  @MessagePattern('session.getHostPresence')
+  async getHostPresence(@Payload() data: { roomId: string }) {
+    try {
+      return await this.sessionService.getHostPresence(data.roomId);
+    } catch (err: any) {
+      this.logger.error(`[session.getHostPresence] Error:`, err?.stack || err);
+      return { roomId: data.roomId, isHostPresent: true, hostAbsentSecondsRemaining: 300 };
+    }
+  }
+
+  @MessagePattern('session.recordHostDisconnected')
+  async recordHostDisconnected(
+    @Payload() data: { roomId: string; userId: string; disconnectedAt?: string },
+  ) {
+    try {
+      return await this.sessionService.recordHostDisconnected(
+        data.roomId,
+        data.userId,
+        data.disconnectedAt,
+      );
+    } catch (err: any) {
+      this.logger.error(`[session.recordHostDisconnected] Error:`, err?.stack || err);
+      return { success: false };
+    }
+  }
+
   @MessagePattern('session.meteringTick')
   async handleMeteringTick(
     @Payload() data: { userId: string; roomId: string; activeSeconds: number },

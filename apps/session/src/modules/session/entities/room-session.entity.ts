@@ -46,6 +46,9 @@ export class RoomSession {
   @Column({ type: 'enum', enum: RoomCloseReason, nullable: true })
   closeReason: RoomCloseReason;
 
+  @Column({ name: 'host_disconnected_at', type: 'timestamptz', nullable: true })
+  hostDisconnectedAt?: Date | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   title?: string;
 

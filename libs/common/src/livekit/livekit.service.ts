@@ -66,4 +66,22 @@ export class LiveKitService {
       );
     }
   }
+
+  async deleteRoom(roomName: string): Promise<void> {
+    try {
+      await this.roomServiceClient.deleteRoom(roomName);
+      this.logger.log(`LiveKit room ${roomName} deleted successfully`);
+    } catch (error) {
+      this.logger.warn(`Không thể xóa phòng LiveKit ${roomName}:`, error);
+    }
+  }
+
+  async listParticipants(roomName: string): Promise<any[]> {
+    try {
+      return await this.roomServiceClient.listParticipants(roomName);
+    } catch (error) {
+      this.logger.warn(`Không thể lấy danh sách participant phòng LiveKit ${roomName}:`, error);
+      return [];
+    }
+  }
 }

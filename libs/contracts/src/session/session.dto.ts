@@ -129,4 +129,7 @@ export interface LiveKitTokenResponse {
   activeSeconds?: number;
   paidSeconds?: number;
   creditsCharged?: number;
+  isHostPresent?: boolean;
+  hostDisconnectedAt?: Date | string | null;
+  hostAbsentSecondsRemaining?: number;
 }

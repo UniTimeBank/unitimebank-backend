@@ -10,6 +10,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger, Injectable } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
+import { firstValueFrom, timeout } from 'rxjs';
 import { SessionClient } from '../clients/session.client';
 
 @Injectable()
@@ -54,6 +55,34 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   handleDisconnect(client: Socket) {
     this.logger.debug(`Session socket client ${client.id} disconnected`);
+    const roomId = client.data.roomId;
+    const userId = client.data.userId;
+    const role = client.data.role;
+
+    if (roomId) {
+      const nsp = client.nsp || this.server;
+      nsp.to(`room_${roomId}`).emit('user-left-room', {
+        userId,
+        socketId: client.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (role === 'MENTOR') {
+        this.logger.warn(`Host ${userId} disconnected from socket room_${roomId}`);
+        const now = new Date();
+        this.sessionClient.emit('session.recordHostDisconnected', {
+          roomId,
+          userId,
+          disconnectedAt: now.toISOString(),
+        });
+        nsp.to(`room_${roomId}`).emit('host-presence-changed', {
+          roomId,
+          isHostPresent: false,
+          absentSince: now.toISOString(),
+          killCountdownSeconds: 300,
+        });
+      }
+    }
   }
 
   /**
@@ -76,9 +105,13 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
       return { success: false, message: err?.message || 'Không có quyền vào phòng' };
     }
 
+    client.data.roomId = roomId;
+    client.data.role = data.role;
+    client.data.userId = userId;
+
     await client.join(`room_${roomId}`);
     await client.join(roomId);
-    this.logger.log(`User ${userId} joined socket room room_${roomId}`);
+    this.logger.log(`User ${userId} (${data.role}) joined socket room room_${roomId}`);
 
     const nsp = client.nsp || this.server;
     nsp.to(`room_${roomId}`).emit('user-joined-room', {
@@ -88,6 +121,29 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
       role: data.role,
       timestamp: new Date().toISOString(),
     });
+
+    if (data.role === 'MENTOR') {
+      nsp.to(`room_${roomId}`).emit('host-presence-changed', {
+        roomId,
+        isHostPresent: true,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      // Nếu học viên tham gia, kiểm tra xem Host có đang vắng mặt không để đồng bộ countdown chính xác
+      try {
+        const presence: any = await this.sessionClient.send('session.getHostPresence', { roomId });
+        if (presence && presence.isHostPresent === false) {
+          client.emit('host-presence-changed', {
+            roomId,
+            isHostPresent: false,
+            absentSince: presence.hostDisconnectedAt,
+            killCountdownSeconds: presence.hostAbsentSecondsRemaining,
+          });
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
 
     return { success: true, roomId };
   }
@@ -115,6 +171,22 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
       timestamp: new Date().toISOString(),
     });
 
+    if (client.data.role === 'MENTOR') {
+      const now = new Date();
+      this.sessionClient.emit('session.recordHostDisconnected', {
+        roomId,
+        userId,
+        disconnectedAt: now.toISOString(),
+      });
+      nsp.to(`room_${roomId}`).emit('host-presence-changed', {
+        roomId,
+        isHostPresent: false,
+        absentSince: now.toISOString(),
+        killCountdownSeconds: 300,
+      });
+    }
+
+    client.data.roomId = null;
     return { success: true };
   }
 
@@ -143,6 +215,15 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         userId,
         roomId,
         activeSeconds: data.activeSeconds,
+      })
+      .then((res: any) => {
+        if (res?.isFrozen) {
+          client.emit('metering-frozen', {
+            roomId,
+            isFrozen: true,
+            message: 'Host is absent, time and billing frozen',
+          });
+        }
       })
       .catch((err) => {
         this.logger.warn(`Failed to process meteringTick for user ${userId}:`, err);
