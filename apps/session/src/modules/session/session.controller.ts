@@ -310,4 +310,14 @@ export class SessionController {
       });
     }
   }
+
+  @MessagePattern('session.checkUserInActiveGroupRoom')
+  async checkUserInActiveGroupRoom(@Payload() data: { userId: string }) {
+    try {
+      return await this.sessionService.isUserInActiveGroupRoom(data.userId);
+    } catch (err: any) {
+      this.logger.error(`[session.checkUserInActiveGroupRoom] Error:`, err?.stack || err);
+      return false;
+    }
+  }
 }

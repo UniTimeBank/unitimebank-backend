@@ -29,6 +29,6 @@ export class PostSessionRating {
   @Column({ name: 'reviewer_avatar', nullable: true })
   reviewerAvatar?: string;
 
-  @CreateDateColumn({ name: 'submitted_at' })
+  @CreateDateColumn({ name: 'submitted_at', type: 'timestamptz' })
   submittedAt: Date;
 }

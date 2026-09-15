@@ -3,6 +3,7 @@ import {
   NotFoundException,
   Inject,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -22,7 +23,7 @@ import {
 } from '@app/contracts/user';
 
 @Injectable()
-export class UserProfileService {
+export class UserProfileService implements OnModuleInit {
   private readonly logger = new Logger(UserProfileService.name);
 
   constructor(
@@ -41,6 +42,26 @@ export class UserProfileService {
     @Inject('WALLET_SERVICE')
     private readonly walletClient: ClientProxy,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.userProfileRepo.query(`
+        DO $$
+        BEGIN
+          ALTER TABLE "user_profile" ADD COLUMN IF NOT EXISTS "mentor_trust_score" INT DEFAULT 100;
+          ALTER TABLE "user_profile" ADD COLUMN IF NOT EXISTS "learner_trust_score" INT DEFAULT 100;
+          ALTER TABLE "user_profile" ADD COLUMN IF NOT EXISTS "total_teaching_minutes" INT DEFAULT 0;
+          ALTER TABLE "user_profile" ADD COLUMN IF NOT EXISTS "total_learning_minutes" INT DEFAULT 0;
+          ALTER TABLE "user_profile" ADD COLUMN IF NOT EXISTS "total_sessions_completed" INT DEFAULT 0;
+        EXCEPTION
+          WHEN others THEN null;
+        END $$;
+      `);
+      this.logger.log('UserProfile dual trust scores & ranking metric columns verified');
+    } catch (err) {
+      this.logger.warn('Error verifying UserProfile columns in onModuleInit:', err);
+    }
+  }
 
   /**
    * Lấy profile của user hiện tại (authenticated user)
@@ -233,13 +254,22 @@ export class UserProfileService {
     const followersCount = await this.followRepo.count({ where: { followeeId: targetUserId } });
     const followingCount = await this.followRepo.count({ where: { followerId: targetUserId } });
 
+    const mScore = profile.mentorTrustScore ?? profile.trustScore ?? 100;
+    const lScore = profile.learnerTrustScore ?? 100;
+
     return {
       id: profile.id,
       displayName: profile.displayName,
       avatarUrl: profile.avatarUrl,
       bio: profile.bio,
-      trustScore: profile.trustScore,
-      trustTier: this.getTrustTier(profile.trustScore),
+      trustScore: mScore,
+      mentorTrustScore: mScore,
+      learnerTrustScore: lScore,
+      trustTier: this.getTrustTier(mScore),
+      mentorTrustTier: this.getTrustTier(mScore),
+      learnerTrustTier: this.getTrustTier(lScore),
+      totalTeachingMinutes: profile.totalTeachingMinutes ?? 0,
+      totalLearningMinutes: profile.totalLearningMinutes ?? 0,
       followersCount,
       followingCount,
       skills: (profile.skills || []).map((s) => ({
@@ -283,6 +313,11 @@ export class UserProfileService {
       avatarUrl: initialData?.avatarUrl || '',
       bio: '',
       trustScore: 100,
+      mentorTrustScore: 100,
+      learnerTrustScore: 100,
+      totalTeachingMinutes: 0,
+      totalLearningMinutes: 0,
+      totalSessionsCompleted: 0,
       onboardingCompleted: false,
     });
 
@@ -292,12 +327,51 @@ export class UserProfileService {
   /**
    * Cập nhật trust score
    */
-  async updateTrustScore(userId: string, newScore: number): Promise<void> {
-    await this.userProfileRepo.update({ userId }, { trustScore: newScore });
+  async updateTrustScore(
+    userId: string,
+    data: { score?: number; mentorScore?: number; learnerScore?: number; roleType?: string },
+  ): Promise<void> {
+    const updatePayload: any = {};
+    if (data.mentorScore !== undefined) {
+      updatePayload.mentorTrustScore = data.mentorScore;
+      updatePayload.trustScore = data.mentorScore;
+    } else if (data.score !== undefined && (!data.roleType || data.roleType === 'MENTOR')) {
+      updatePayload.mentorTrustScore = data.score;
+      updatePayload.trustScore = data.score;
+    }
+
+    if (data.learnerScore !== undefined) {
+      updatePayload.learnerTrustScore = data.learnerScore;
+    } else if (data.score !== undefined && data.roleType === 'LEARNER') {
+      updatePayload.learnerTrustScore = data.score;
+    }
+
+    if (Object.keys(updatePayload).length > 0) {
+      await this.userProfileRepo.update({ userId }, updatePayload);
+    }
+  }
+
+  /**
+   * Tích lũy số phút giảng dạy / học tập
+   */
+  async incrementUserActivity(
+    userId: string,
+    data: { teachingMinutes?: number; learningMinutes?: number; sessionsCount?: number },
+  ): Promise<void> {
+    const profile = await this.findOrCreateProfile(userId);
+    if (data.teachingMinutes) {
+      profile.totalTeachingMinutes = (profile.totalTeachingMinutes || 0) + data.teachingMinutes;
+    }
+    if (data.learningMinutes) {
+      profile.totalLearningMinutes = (profile.totalLearningMinutes || 0) + data.learningMinutes;
+    }
+    if (data.sessionsCount) {
+      profile.totalSessionsCompleted = (profile.totalSessionsCompleted || 0) + data.sessionsCount;
+    }
+    await this.userProfileRepo.save(profile);
   }
 
   private getTrustTier(score: number): string {
-    if (score >= 120) return 'EXCELLENT';
     if (score >= 80) return 'GOOD';
     if (score >= 50) return 'AVERAGE';
     if (score > 0) return 'WARNING';
@@ -336,11 +410,15 @@ export class UserProfileService {
     }
 
     if (query.tier) {
-      if (query.tier === 'EXCELLENT') qb.andWhere('profile.trustScore >= 120');
-      else if (query.tier === 'GOOD') qb.andWhere('profile.trustScore >= 80 AND profile.trustScore < 120');
-      else if (query.tier === 'AVERAGE') qb.andWhere('profile.trustScore >= 50 AND profile.trustScore < 80');
-      else if (query.tier === 'WARNING') qb.andWhere('profile.trustScore > 0 AND profile.trustScore < 50');
-      else if (query.tier === 'LOCKED') qb.andWhere('profile.trustScore = 0');
+      if (query.tier === 'EXCELLENT' || query.tier === 'GOOD') {
+        qb.andWhere('COALESCE(profile.mentorTrustScore, profile.trustScore, 100) >= 80');
+      } else if (query.tier === 'AVERAGE') {
+        qb.andWhere('COALESCE(profile.mentorTrustScore, profile.trustScore, 100) >= 50 AND COALESCE(profile.mentorTrustScore, profile.trustScore, 100) < 80');
+      } else if (query.tier === 'WARNING') {
+        qb.andWhere('COALESCE(profile.mentorTrustScore, profile.trustScore, 100) > 0 AND COALESCE(profile.mentorTrustScore, profile.trustScore, 100) < 50');
+      } else if (query.tier === 'LOCKED') {
+        qb.andWhere('COALESCE(profile.mentorTrustScore, profile.trustScore, 100) = 0');
+      }
     }
 
     qb.orderBy('profile.createdAt', 'DESC');
@@ -348,26 +426,35 @@ export class UserProfileService {
 
     const [profiles, total] = await qb.getManyAndCount();
 
-    const formatted = profiles.map((p) => ({
-      id: p.id,
-      userId: p.userId,
-      email: p.displayName ? `${p.displayName.toLowerCase().replace(/\s+/g, '')}@gmail.com` : 'sinhvien@gmail.com',
-      fullName: p.displayName || 'Sinh Viên UniTime',
-      displayName: p.displayName,
-      avatarUrl: p.avatarUrl,
-      bio: p.bio || '',
-      trustScore: p.trustScore ?? 100,
-      mentorTrustScore: p.trustScore ?? 100,
-      learnerTrustScore: 100,
-      tier: this.getTrustTier(p.trustScore ?? 100),
-      createdAt: p.createdAt,
-      skills: p.skills?.map((s) => ({
-        id: s.id,
-        name: s.skillName,
-        category: s.category,
-        isStrong: s.isStrong,
-      })) || [],
-    }));
+    const formatted = profiles.map((p) => {
+      const mScore = p.mentorTrustScore ?? p.trustScore ?? 100;
+      const lScore = p.learnerTrustScore ?? 100;
+      return {
+        id: p.id,
+        userId: p.userId,
+        email: p.displayName ? `${p.displayName.toLowerCase().replace(/\s+/g, '')}@gmail.com` : 'sinhvien@gmail.com',
+        fullName: p.displayName || 'Sinh Viên UniTime',
+        displayName: p.displayName,
+        avatarUrl: p.avatarUrl,
+        bio: p.bio || '',
+        trustScore: mScore,
+        mentorTrustScore: mScore,
+        learnerTrustScore: lScore,
+        tier: this.getTrustTier(mScore),
+        mentorTier: this.getTrustTier(mScore),
+        learnerTier: this.getTrustTier(lScore),
+        totalTeachingMinutes: p.totalTeachingMinutes ?? 0,
+        totalLearningMinutes: p.totalLearningMinutes ?? 0,
+        totalSessionsCompleted: p.totalSessionsCompleted ?? 0,
+        createdAt: p.createdAt,
+        skills: p.skills?.map((s) => ({
+          id: s.id,
+          name: s.skillName,
+          category: s.category,
+          isStrong: s.isStrong,
+        })) || [],
+      };
+    });
 
     return {
       users: formatted,

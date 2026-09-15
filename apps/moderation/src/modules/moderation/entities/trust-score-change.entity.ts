@@ -23,6 +23,9 @@ export class TrustScoreChange {
   @Column({ type: 'enum', enum: TrustChangeReason })
   reason: TrustChangeReason;
 
+  @Column({ name: 'role_type', default: 'MENTOR' })
+  roleType: 'MENTOR' | 'LEARNER';
+
   @Column({ name: 'score_before' })
   scoreBefore: number;
 
@@ -35,6 +38,6 @@ export class TrustScoreChange {
   @Column({ name: 'source_event_kind', nullable: true })
   sourceEventKind: string;
 
-  @CreateDateColumn({ name: 'occurred_at' })
+  @CreateDateColumn({ name: 'occurred_at', type: 'timestamptz' })
   occurredAt: Date;
 }

@@ -42,14 +42,34 @@ export class ModerationController {
 
   @MessagePattern('moderation.adminAdjustTrustScore')
   async adminAdjustTrustScore(
-    @Payload() data: { userId: string; delta: number; adminId: string; note?: string },
+    @Payload()
+    data: {
+      userId: string;
+      delta: number;
+      adminId: string;
+      note?: string;
+      roleType?: 'MENTOR' | 'LEARNER';
+    },
   ) {
     return this.moderationService.adminAdjustTrustScore(
       data.userId,
       data.delta,
       data.adminId,
       data.note,
+      data.roleType,
     );
+  }
+
+  // ==================== LEADERBOARD ====================
+
+  @MessagePattern('moderation.getMentorLeaderboard')
+  async getMentorLeaderboard(@Payload() data: { timeframe?: string; limit?: number }) {
+    return this.moderationService.getMentorLeaderboard(data?.timeframe, data?.limit);
+  }
+
+  @MessagePattern('moderation.getLearnerLeaderboard')
+  async getLearnerLeaderboard(@Payload() data: { timeframe?: string; limit?: number }) {
+    return this.moderationService.getLearnerLeaderboard(data?.timeframe, data?.limit);
   }
 
   // ==================== VIOLATION REPORTS ====================
@@ -74,3 +94,4 @@ export class ModerationController {
     return this.moderationService.resolveReport(data.moderatorId, data.dto);
   }
 }
+

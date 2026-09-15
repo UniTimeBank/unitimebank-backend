@@ -28,12 +28,49 @@ export class UserEventHandler {
   }
 
   @EventPattern(MODERATION_EVENTS.TRUST_SCORE_UPDATED)
-  async handleTrustScoreUpdated(@Payload() data: { userId: string; score: number }) {
+  async handleTrustScoreUpdated(
+    @Payload()
+    data: {
+      userId: string;
+      score?: number;
+      mentorScore?: number;
+      learnerScore?: number;
+      roleType?: string;
+    },
+  ) {
     if (!data?.userId) return;
     try {
-      await this.userProfileService.updateTrustScore(data.userId, data.score);
+      await this.userProfileService.updateTrustScore(data.userId, data);
     } catch (error) {
       console.error('[USER EVENT] Error updating trust score:', error);
+    }
+  }
+
+  @EventPattern('session.completedActivity')
+  async handleSessionCompletedActivity(
+    @Payload()
+    data: {
+      mentorId?: string;
+      learnerId?: string;
+      teachingMinutes?: number;
+      learningMinutes?: number;
+    },
+  ) {
+    try {
+      if (data.mentorId && data.teachingMinutes) {
+        await this.userProfileService.incrementUserActivity(data.mentorId, {
+          teachingMinutes: data.teachingMinutes,
+          sessionsCount: 1,
+        });
+      }
+      if (data.learnerId && data.learningMinutes) {
+        await this.userProfileService.incrementUserActivity(data.learnerId, {
+          learningMinutes: data.learningMinutes,
+          sessionsCount: 1,
+        });
+      }
+    } catch (error) {
+      console.error('[USER EVENT] Error updating session activity:', error);
     }
   }
 }

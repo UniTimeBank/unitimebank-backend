@@ -29,6 +29,6 @@ export class SystemStats {
   @Column({ type: 'simple-array', name: 'top_mentor_ids', nullable: true })
   topMentorIds: string[];
 
-  @CreateDateColumn({ name: 'generated_at' })
+  @CreateDateColumn({ name: 'generated_at', type: 'timestamptz' })
   generatedAt: Date;
 }

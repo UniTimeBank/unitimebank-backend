@@ -6,6 +6,7 @@ import {
   Param,
   Query,
   Req,
+  BadRequestException,
 } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import {
@@ -17,6 +18,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { BookingClient } from '../clients/booking.client';
+import { SessionClient } from '../clients/session.client';
 import { notificationEventSubject } from './notification.routes';
 
 import {
@@ -40,8 +42,24 @@ export class BookingRoutes {
     private readonly bookingClient: BookingClient,
     private readonly notificationGateway: NotificationGateway,
     private readonly bookingGateway: BookingGateway,
+    private readonly sessionClient: SessionClient,
   ) {}
 
+  private extractUserId(req: any): string | null {
+    if (req.user?.id) return req.user.id;
+    if (req.user?.sub) return req.user.sub;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.substring(7);
+        const decoded: any = jwt.decode(token);
+        return decoded?.sub || decoded?.id || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
 
   private getAuthHeaders(req: any): Record<string, string> {
     return req.headers.authorization ? { Authorization: req.headers.authorization } : {};
@@ -58,6 +76,13 @@ export class BookingRoutes {
   @ApiBody({ type: CreateMentorPostBookingDto })
   @ApiResponse({ status: 201, description: 'Gửi yêu cầu đặt lịch thành công', type: BookingResponseDto })
   async createBooking(@Body() dto: CreateMentorPostBookingDto, @Req() req: any) {
+    const userId = this.extractUserId(req);
+    if (userId) {
+      const inActiveGroup = await this.sessionClient.send('session.checkUserInActiveGroupRoom', { userId });
+      if (inActiveGroup) {
+        throw new BadRequestException('Bạn đang tham gia phòng học nhóm trực tuyến. Vui lòng rời phòng học trước khi đặt lịch học.');
+      }
+    }
     return this.bookingClient.createBooking(dto, this.getAuthHeaders(req));
   }
 
@@ -68,6 +93,13 @@ export class BookingRoutes {
   @ApiBody({ type: CreateMentorPostBookingDto })
   @ApiResponse({ status: 201, description: 'Gửi yêu cầu đặt lịch thành công', type: BookingResponseDto })
   async requestMentorPost(@Body() dto: CreateMentorPostBookingDto, @Req() req: any) {
+    const userId = this.extractUserId(req);
+    if (userId) {
+      const inActiveGroup = await this.sessionClient.send('session.checkUserInActiveGroupRoom', { userId });
+      if (inActiveGroup) {
+        throw new BadRequestException('Bạn đang tham gia phòng học nhóm trực tuyến. Vui lòng rời phòng học trước khi đặt lịch học.');
+      }
+    }
     return this.bookingClient.createBooking(dto, this.getAuthHeaders(req));
   }
 
@@ -78,6 +110,13 @@ export class BookingRoutes {
   @ApiBody({ type: CreateLearnerRequestBookingDto })
   @ApiResponse({ status: 201, description: 'Gửi đề nghị dạy thành công', type: BookingResponseDto })
   async applyLearnerRequest(@Body() dto: CreateLearnerRequestBookingDto, @Req() req: any) {
+    const userId = this.extractUserId(req);
+    if (userId) {
+      const inActiveGroup = await this.sessionClient.send('session.checkUserInActiveGroupRoom', { userId });
+      if (inActiveGroup) {
+        throw new BadRequestException('Bạn đang tham gia phòng học nhóm trực tuyến. Vui lòng rời phòng học trước khi gửi đề nghị dạy.');
+      }
+    }
     return this.bookingClient.applyLearnerRequest(dto, this.getAuthHeaders(req));
   }
 
@@ -91,6 +130,13 @@ export class BookingRoutes {
   @ApiOperation({ summary: 'Chấp nhận booking (Mentor duyệt / Learner chấp nhận đề nghị) + Ký quỹ Credit' })
   @ApiResponse({ status: 200, description: 'Chấp nhận và ký quỹ thành công', type: BookingResponseDto })
   async acceptBooking(@Param('id') id: string, @Req() req: any) {
+    const userId = this.extractUserId(req);
+    if (userId) {
+      const inActiveGroup = await this.sessionClient.send('session.checkUserInActiveGroupRoom', { userId });
+      if (inActiveGroup) {
+        throw new BadRequestException('Bạn đang tham gia phòng học nhóm trực tuyến. Vui lòng rời phòng học trước khi duyệt lịch học.');
+      }
+    }
     return this.bookingClient.acceptBooking(id, this.getAuthHeaders(req));
   }
 

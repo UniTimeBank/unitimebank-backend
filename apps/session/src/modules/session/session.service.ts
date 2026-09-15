@@ -80,6 +80,8 @@ export class SessionService implements OnModuleInit {
         DO $$
         BEGIN
           ALTER TABLE "room_session" ADD COLUMN IF NOT EXISTS "host_disconnected_at" TIMESTAMPTZ NULL;
+          ALTER TABLE "room_session" ADD COLUMN IF NOT EXISTS "skills" TEXT[] NULL;
+          ALTER TABLE "room_session" ADD COLUMN IF NOT EXISTS "cover_image" TEXT NULL;
         EXCEPTION
           WHEN others THEN null;
         END $$;
@@ -534,6 +536,8 @@ export class SessionService implements OnModuleInit {
       status: RoomStatus.IN_PROGRESS,
       title: dto.title?.trim() || 'Phòng học nhóm trực tuyến',
       category: dto.category?.trim() || undefined,
+      skills: dto.skills && dto.skills.length > 0 ? dto.skills : undefined,
+      coverImage: dto.coverImage || undefined,
       maxParticipants: dto.maxParticipants ? Math.max(1, dto.maxParticipants) : 20,
       postId: dto.postId || undefined,
       openedAt: new Date(),
@@ -650,13 +654,6 @@ export class SessionService implements OnModuleInit {
         participant.activeSeconds =
           (participant.activeSeconds || 0) +
           Math.min(sessionElapsed, this.GROUP_HEARTBEAT_MAX_GAP_SECONDS);
-
-        if (!isMentor) {
-          const billing = await this.settleGroupParticipantBilling(room, participant, now);
-          if (billing.newBalance !== undefined) {
-            availableBalance = billing.newBalance;
-          }
-        }
       }
       participant.connectionStatus = ConnectionStatus.ONLINE;
       participant.joinedAt = now;
@@ -748,21 +745,22 @@ export class SessionService implements OnModuleInit {
       participant.role === ParticipantRole.LEARNER &&
       participant.connectionStatus === ConnectionStatus.ONLINE
     ) {
-      await this.settleGroupParticipantBilling(
+      await this.settleGroupParticipantBillingOnExit(
         room,
         participant,
         leftAt,
       );
+    } else {
+      participant.leftAt = leftAt;
+      participant.connectionStatus = ConnectionStatus.DISCONNECTED;
+      participant.lastHeartbeatAt = null;
+      await this.participantRepo.save(participant);
     }
-    participant.leftAt = leftAt;
-    participant.connectionStatus = ConnectionStatus.DISCONNECTED;
-    participant.lastHeartbeatAt = null;
 
     const minutesParticipated = Math.floor(
       (participant.activeSeconds || 0) / 60,
     );
 
-    await this.participantRepo.save(participant);
     await this.recordConnectionEvent(roomId, participant.id, EventType.DISCONNECTED);
 
     if (room?.roomType === RoomType.GROUP && room.mentorId === userId) {
@@ -801,11 +799,7 @@ export class SessionService implements OnModuleInit {
     });
     const closedAt = new Date();
     for (const participant of activeLearners) {
-      await this.settleGroupParticipantBilling(room, participant, closedAt);
-      participant.connectionStatus = ConnectionStatus.DISCONNECTED;
-      participant.leftAt = closedAt;
-      participant.lastHeartbeatAt = null;
-      await this.participantRepo.save(participant);
+      await this.settleGroupParticipantBillingOnExit(room, participant, closedAt);
     }
 
     // 1. Tính tổng số Credit đã trừ từ tất cả học viên trong phòng này
@@ -963,6 +957,8 @@ export class SessionService implements OnModuleInit {
         mentorId: r.mentorId,
         title: r.title || 'Phòng học nhóm trực tuyến',
         category: r.category,
+        skills: r.skills || [],
+        coverImage: r.coverImage,
         maxParticipants: r.maxParticipants || 20,
         postId: r.postId,
         currentParticipants: activeCount,
@@ -1096,13 +1092,14 @@ export class SessionService implements OnModuleInit {
       participant.role === ParticipantRole.LEARNER &&
       participant.connectionStatus === ConnectionStatus.ONLINE
     ) {
-      await this.settleGroupParticipantBilling(room, participant, new Date());
+      await this.settleGroupParticipantBillingOnExit(room, participant, new Date());
+    } else {
+      participant.leftAt = new Date();
+      participant.lastHeartbeatAt = null;
     }
 
     participant.isKicked = true;
     participant.connectionStatus = ConnectionStatus.KICKED;
-    participant.leftAt = new Date();
-    participant.lastHeartbeatAt = null;
     await this.participantRepo.save(participant);
 
     const action = this.hostActionRepo.create({
@@ -1129,7 +1126,7 @@ export class SessionService implements OnModuleInit {
   // ════════════════════════════════════════════════════════════════
 
   /**
-   * SOCKET / RMQ: heartbeat — Ghi nhận nhịp tim & Trừ 1 Credit cho lớp nhóm
+   * SOCKET / RMQ: heartbeat — Ghi nhận nhịp tim & Tích lũy thời gian học (Chỉ trừ ví khi thoát phòng)
    */
   async processHeartbeat(userId: string, roomId: string) {
     const room = await this.roomRepo.findOne({ where: { id: roomId } });
@@ -1149,11 +1146,11 @@ export class SessionService implements OnModuleInit {
     }
 
     const now = new Date();
-    participant.lastHeartbeatAt = now;
-    await this.participantRepo.save(participant);
 
     // Nếu người gửi heartbeat là Host (Mentor) của phòng học nhóm
     if (room.roomType === RoomType.GROUP && room.mentorId === userId) {
+      participant.lastHeartbeatAt = now;
+      await this.participantRepo.save(participant);
       if (room.hostDisconnectedAt) {
         room.hostDisconnectedAt = null;
         await this.roomRepo.save(room);
@@ -1169,7 +1166,9 @@ export class SessionService implements OnModuleInit {
     if (room.roomType === RoomType.GROUP && participant.role === ParticipantRole.LEARNER) {
       const isHostPresent = await this.isHostPresentInGroupRoom(room);
       if (!isHostPresent) {
-        // Chủ phòng vắng mặt: ĐÓNG BĂNG thời gian và credit, không trừ tiền
+        // Chủ phòng vắng mặt: ĐÓNG BĂNG thời gian và credit, không tích lũy giây
+        participant.lastHeartbeatAt = now;
+        await this.participantRepo.save(participant);
         return {
           tickId: null,
           isFrozen: true,
@@ -1185,47 +1184,79 @@ export class SessionService implements OnModuleInit {
       }
     }
 
-    let billingResult: {
-      creditDeducted: number;
-      newBalance?: number;
-      insufficientBalance: boolean;
-    } = {
-      creditDeducted: 0,
-      insufficientBalance: false,
-    };
-
-    if (room.roomType === RoomType.GROUP && participant.role === ParticipantRole.LEARNER) {
-      billingResult = await this.settleGroupParticipantBilling(
-        room,
-        participant,
-        now,
+    // Tích lũy số giây học thực tế
+    let elapsedSeconds = 0;
+    if (participant.lastHeartbeatAt) {
+      elapsedSeconds = Math.max(
+        0,
+        Math.floor(
+          (now.getTime() - new Date(participant.lastHeartbeatAt).getTime()) / 1000,
+        ),
       );
+    }
+    participant.lastHeartbeatAt = now;
+    participant.activeSeconds =
+      (participant.activeSeconds || 0) +
+      Math.min(elapsedSeconds, this.GROUP_HEARTBEAT_MAX_GAP_SECONDS);
+
+    const completedBillableMinutes = Math.floor(
+      Math.max(0, (participant.activeSeconds || 0) - this.GROUP_FREE_SECONDS) / 60,
+    );
+
+    // Kiểm tra số dư ví khả dụng của Learner
+    let insufficientBalance = false;
+    try {
+      const walletRes = await firstValueFrom(
+        this.walletClient
+          .send('wallet.getWallet', { userId: participant.userId })
+          .pipe(timeout(3000)),
+      );
+      const availableBalance = walletRes?.availableBalance ?? 0;
+      if (availableBalance < completedBillableMinutes && completedBillableMinutes > 0) {
+        insufficientBalance = true;
+      }
+    } catch {
+      // Fail-soft nếu service wallet phản hồi chậm
+    }
+
+    if (insufficientBalance) {
+      participant.connectionStatus = ConnectionStatus.DISCONNECTED;
+      participant.leftAt = now;
+      participant.lastHeartbeatAt = null;
+      await this.participantRepo.save(participant);
+      await this.livekitService.removeParticipant(
+        room.livekitRoomName,
+        participant.userId,
+      );
+    } else {
+      await this.participantRepo.save(participant);
     }
 
     const tick = this.heartbeatRepo.create({
       participantId: participant.id,
       roomId,
       tickAt: now,
-      creditDeducted: billingResult.creditDeducted > 0,
+      creditDeducted: false,
       emittedAt: now,
     });
     await this.heartbeatRepo.save(tick);
 
     return {
       tickId: tick.id,
-      creditDeducted: billingResult.creditDeducted,
-      newBalance: billingResult.newBalance,
-      insufficientBalance: billingResult.insufficientBalance,
+      creditDeducted: 0,
+      newBalance: undefined,
+      insufficientBalance,
       freeSecondsRemaining: Math.max(
         0,
         this.GROUP_FREE_SECONDS - (participant.activeSeconds || 0),
       ),
-      totalCreditsCharged: participant.creditCharged || 0,
+      totalCreditsCharged: completedBillableMinutes,
+      isFrozen: false,
     };
   }
 
   /**
-   * Đồng bộ hóa số giây và trừ Credit tức thì khi Learner nhảy phút trả phí mới
+   * Đồng bộ hóa số giây học thực tế từ client
    */
   async syncGroupMetering(
     userId: string,
@@ -1245,7 +1276,6 @@ export class SessionService implements OnModuleInit {
     // Kiểm tra xem Chủ phòng có mặt không
     const isHostPresent = await this.isHostPresentInGroupRoom(room);
     if (!isHostPresent) {
-      // Chủ phòng vắng mặt: ĐÓNG BĂNG thời gian, không cập nhật activeSeconds và không trừ credit
       return {
         success: true,
         isFrozen: true,
@@ -1261,54 +1291,46 @@ export class SessionService implements OnModuleInit {
     }
     const now = new Date();
     participant.lastHeartbeatAt = now;
-    const billing = await this.settleGroupParticipantBilling(room, participant, now);
+    await this.participantRepo.save(participant);
+
+    const completedBillableMinutes = Math.floor(
+      Math.max(0, (participant.activeSeconds || 0) - this.GROUP_FREE_SECONDS) / 60,
+    );
+
     return {
       success: true,
       activeSeconds: participant.activeSeconds,
-      creditDeducted: billing.creditDeducted,
-      newBalance: billing.newBalance,
-      insufficientBalance: billing.insufficientBalance,
+      creditDeducted: 0,
+      newBalance: undefined,
+      insufficientBalance: false,
+      totalCreditsCharged: completedBillableMinutes,
     };
   }
 
-  private async settleGroupParticipantBilling(
+  /**
+   * Quyết toán 01 lần duy nhất toàn bộ số phút trả phí khi Learner rời phòng
+   */
+  private async settleGroupParticipantBillingOnExit(
     room: RoomSession,
     participant: RoomParticipant,
     now: Date,
   ): Promise<{
-    creditDeducted: number;
-    newBalance?: number;
-    insufficientBalance: boolean;
+    creditsCharged: number;
+    balanceAfter?: number;
   }> {
-    if (!participant.lastHeartbeatAt) {
-      participant.lastHeartbeatAt = now;
-      await this.participantRepo.save(participant);
-      return { creditDeducted: 0, insufficientBalance: false };
+    if (!participant || participant.role !== ParticipantRole.LEARNER) {
+      return { creditsCharged: 0 };
     }
 
-    const elapsedSeconds = Math.max(
-      0,
-      Math.floor(
-        (now.getTime() - new Date(participant.lastHeartbeatAt).getTime()) / 1000,
-      ),
+    const totalBillableMinutes = Math.floor(
+      Math.max(0, (participant.activeSeconds || 0) - this.GROUP_FREE_SECONDS) / 60,
     );
-    participant.lastHeartbeatAt = now;
-    participant.activeSeconds =
-      (participant.activeSeconds || 0) +
-      Math.min(elapsedSeconds, this.GROUP_HEARTBEAT_MAX_GAP_SECONDS);
+    const alreadyCharged = participant.creditCharged || 0;
+    const creditsToCharge = Math.max(0, totalBillableMinutes - alreadyCharged);
 
-    const completedBillableMinutes = Math.floor(
-      Math.max(0, participant.activeSeconds - this.GROUP_FREE_SECONDS) / 60,
-    );
-    let creditDeducted = 0;
-    let newBalance: number | undefined;
-    let insufficientBalance = false;
+    let balanceAfter: number | undefined;
 
-    for (
-      let minuteIndex = (participant.chargedMinutes || 0) + 1;
-      minuteIndex <= completedBillableMinutes;
-      minuteIndex += 1
-    ) {
+    if (creditsToCharge > 0) {
       try {
         const deductResult = await firstValueFrom(
           this.walletClient
@@ -1316,46 +1338,35 @@ export class SessionService implements OnModuleInit {
               roomId: room.id,
               learnerId: participant.userId,
               mentorId: room.mentorId,
-              amount: 1,
-              chargeKey: `group:${room.id}:${participant.id}:${minuteIndex}`,
-              minuteIndex,
+              amount: creditsToCharge,
+              chargeKey: `group_exit:${room.id}:${participant.id}:${totalBillableMinutes}`,
+              minuteIndex: totalBillableMinutes,
             })
-            .pipe(timeout(5000)),
+            .pipe(timeout(8000)),
         );
-        newBalance = deductResult?.balanceAfter;
-        if (!deductResult?.success) {
-          insufficientBalance =
-            deductResult?.reason === 'INSUFFICIENT_BALANCE';
-          break;
-        }
-
-        participant.chargedMinutes = minuteIndex;
-        participant.creditCharged = Math.max(
-          participant.creditCharged || 0,
-          minuteIndex,
+        balanceAfter = deductResult?.balanceAfter;
+        participant.chargedMinutes = totalBillableMinutes;
+        participant.creditCharged = totalBillableMinutes;
+        this.logger.log(
+          `[settleGroupExit] Successfully deducted ${creditsToCharge} credits for learner ${participant.userId} in room ${room.id}`,
         );
-        if (deductResult?.charged) creditDeducted += 1;
       } catch (err) {
-        this.logger.warn(
-          `Failed to settle group credit for user ${participant.userId} in room ${room.id}:`,
+        this.logger.error(
+          `[settleGroupExit] Failed to deduct ${creditsToCharge} credits for learner ${participant.userId} in room ${room.id}:`,
           err,
         );
-        break;
       }
     }
 
-    if (insufficientBalance) {
-      participant.connectionStatus = ConnectionStatus.DISCONNECTED;
-      participant.leftAt = now;
-      participant.lastHeartbeatAt = null;
-      await this.livekitService.removeParticipant(
-        room.livekitRoomName,
-        participant.userId,
-      );
-    }
+    participant.leftAt = now;
+    participant.connectionStatus = ConnectionStatus.DISCONNECTED;
+    participant.lastHeartbeatAt = null;
     await this.participantRepo.save(participant);
 
-    return { creditDeducted, newBalance, insufficientBalance };
+    return {
+      creditsCharged: participant.creditCharged || 0,
+      balanceAfter,
+    };
   }
 
   // ════════════════════════════════════════════════════════════════
@@ -1744,5 +1755,22 @@ export class SessionService implements OnModuleInit {
     } catch (gErr) {
       this.logger.error('Error in group room auto-kill cron:', gErr);
     }
+  }
+
+  /**
+   * Kiểm tra xem user có đang tham gia một phòng học nhóm ONLINE đang diễn ra hay không
+   */
+  async isUserInActiveGroupRoom(userId: string): Promise<boolean> {
+    if (!userId) return false;
+    const participant = await this.participantRepo
+      .createQueryBuilder('p')
+      .innerJoin('p.roomSession', 'r')
+      .where('p.userId = :userId', { userId })
+      .andWhere('p.connectionStatus = :status', { status: ConnectionStatus.ONLINE })
+      .andWhere('r.roomType = :roomType', { roomType: RoomType.GROUP })
+      .andWhere('r.status = :roomStatus', { roomStatus: RoomStatus.IN_PROGRESS })
+      .getOne();
+
+    return Boolean(participant);
   }
 }

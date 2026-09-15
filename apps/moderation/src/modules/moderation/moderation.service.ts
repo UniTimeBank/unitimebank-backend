@@ -60,9 +60,33 @@ export class ModerationService implements OnModuleInit {
         ALTER TABLE IF EXISTS "trust_score_change"
         DROP CONSTRAINT IF EXISTS "FK_8182546d64c6aad26aa3b544ce7";
       `);
-      this.logger.log('Legacy FK constraint on trust_score_change removed successfully');
+      await this.trustScoreRepo.query(`
+        DO $$
+        BEGIN
+          ALTER TABLE "trust_score" ADD COLUMN IF NOT EXISTS "mentor_score" INT DEFAULT 100;
+          ALTER TABLE "trust_score" ADD COLUMN IF NOT EXISTS "learner_score" INT DEFAULT 100;
+          ALTER TABLE "trust_score" ADD COLUMN IF NOT EXISTS "mentor_tier" VARCHAR DEFAULT 'GOOD';
+          ALTER TABLE "trust_score" ADD COLUMN IF NOT EXISTS "learner_tier" VARCHAR DEFAULT 'GOOD';
+          ALTER TABLE "trust_score_change" ADD COLUMN IF NOT EXISTS "role_type" VARCHAR DEFAULT 'MENTOR';
+
+          -- Convert timestamp columns to timestamptz to avoid 7-hour timezone offset issues
+          ALTER TABLE IF EXISTS "violation_report" ALTER COLUMN "submitted_at" TYPE timestamptz USING "submitted_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "violation_report" ALTER COLUMN "closed_at" TYPE timestamptz USING "closed_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "report_evidence" ALTER COLUMN "uploaded_at" TYPE timestamptz USING "uploaded_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "moderation_decision" ALTER COLUMN "decided_at" TYPE timestamptz USING "decided_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "post_session_rating" ALTER COLUMN "submitted_at" TYPE timestamptz USING "submitted_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "trust_score_change" ALTER COLUMN "occurred_at" TYPE timestamptz USING "occurred_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "account_moderation_action" ALTER COLUMN "occurred_at" TYPE timestamptz USING "occurred_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "trust_score" ALTER COLUMN "last_updated_at" TYPE timestamptz USING "last_updated_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "trust_score" ALTER COLUMN "created_at" TYPE timestamptz USING "created_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "system_stats" ALTER COLUMN "generated_at" TYPE timestamptz USING "generated_at" AT TIME ZONE 'UTC';
+        EXCEPTION
+          WHEN others THEN null;
+        END $$;
+      `);
+      this.logger.log('Moderation dual trust score and timestamptz columns verified successfully');
     } catch (err: any) {
-      this.logger.debug('FK cleanup query result:', err.message);
+      this.logger.debug('Schema verification result in ModerationService:', err.message);
     }
   }
 
@@ -75,14 +99,14 @@ export class ModerationService implements OnModuleInit {
       if (res.ok) {
         const data = await res.json();
         return {
-          name: data.displayName || data.fullName || data.name || 'Học viên',
+          name: data.displayName || data.fullName || data.name || 'Thành viên',
           avatar: data.avatarUrl || data.avatar || '',
         };
       }
     } catch (err) {
       this.logger.debug(`Could not fetch user snapshot for ${userId}:`, err);
     }
-    return { name: 'Học viên', avatar: '' };
+    return { name: 'Thành viên', avatar: '' };
   }
 
   async createRating(reviewerId: string, dto: CreateRatingDto) {
@@ -150,7 +174,6 @@ export class ModerationService implements OnModuleInit {
 
     if (existing) {
       // Upsert: Cập nhật đánh giá cũ
-      const oldStars = existing.stars;
       existing.stars = stars;
       existing.comment = dto.comment?.trim() || undefined;
       existing.reviewerName = reviewerName || existing.reviewerName;
@@ -158,17 +181,16 @@ export class ModerationService implements OnModuleInit {
       existing.submittedAt = new Date();
       savedRating = await this.ratingRepo.save(existing);
 
-      // Tính toán chênh lệch Trust Score giữa số sao mới và cũ
-      const starDeltaMap: Record<number, number> = { 1: -2, 2: -1, 3: 0, 4: 1, 5: 2 };
-      const netDelta = (starDeltaMap[stars] || 0) - (starDeltaMap[oldStars] || 0);
-
-      if (netDelta !== 0 && targetUserId) {
+      // Điểm uy tín tối đa là 100, chỉ bị trừ khi nhận đánh giá tiêu cực (1-2 sao)
+      if (stars <= 2 && targetUserId) {
+        const penalty = stars === 1 ? -2 : -1;
         await this.changeTrustScore(
           targetUserId,
-          netDelta,
-          stars >= 4 ? TrustChangeReason.RATING_5_STAR : TrustChangeReason.RATING_2_STAR,
+          penalty,
+          TrustChangeReason.RATING_1_STAR,
           savedRating.id,
           'POST_SESSION_RATING',
+          'MENTOR',
         );
       }
     } else {
@@ -186,30 +208,16 @@ export class ModerationService implements OnModuleInit {
 
       savedRating = await this.ratingRepo.save(rating);
 
-      // Calculate Trust Score Delta for Mentor
-      let delta = 0;
-      let reason = TrustChangeReason.SESSION_COMPLETED;
-      if (stars === 5) {
-        delta = 2;
-        reason = TrustChangeReason.RATING_5_STAR;
-      } else if (stars === 4) {
-        delta = 1;
-        reason = TrustChangeReason.RATING_4_STAR;
-      } else if (stars === 2) {
-        delta = -1;
-        reason = TrustChangeReason.RATING_2_STAR;
-      } else if (stars === 1) {
-        delta = -2;
-        reason = TrustChangeReason.RATING_1_STAR;
-      }
-
-      if (delta !== 0 && targetUserId) {
+      // Chỉ trừ điểm uy tín khi nhận đánh giá xấu
+      if (stars <= 2 && targetUserId) {
+        const penalty = stars === 1 ? -2 : -1;
         await this.changeTrustScore(
           targetUserId,
-          delta,
-          reason,
+          penalty,
+          stars === 1 ? TrustChangeReason.RATING_1_STAR : TrustChangeReason.RATING_2_STAR,
           savedRating.id,
           'POST_SESSION_RATING',
+          'MENTOR',
         );
       }
     }
@@ -252,7 +260,7 @@ export class ModerationService implements OnModuleInit {
       skip,
     });
 
-    // Enrich reviewer info for reviews (especially legacy/older ones missing reviewerName)
+    // Enrich reviewer info for reviews
     const enrichedReviews = await Promise.all(
       reviews.map(async (r) => {
         if (!r.reviewerName || r.reviewerName === 'Học viên UniTime' || r.reviewerName === 'Học viên') {
@@ -318,7 +326,11 @@ export class ModerationService implements OnModuleInit {
       ts = this.trustScoreRepo.create({
         userId,
         score: 100,
+        mentorScore: 100,
+        learnerScore: 100,
         tier: TrustTier.GOOD,
+        mentorTier: TrustTier.GOOD,
+        learnerTier: TrustTier.GOOD,
       });
       ts = await this.trustScoreRepo.save(ts);
     }
@@ -326,7 +338,6 @@ export class ModerationService implements OnModuleInit {
   }
 
   private calculateTier(score: number): TrustTier {
-    if (score >= 120) return TrustTier.EXCELLENT;
     if (score >= 80) return TrustTier.GOOD;
     if (score >= 50) return TrustTier.AVERAGE;
     if (score > 0) return TrustTier.WARNING;
@@ -339,14 +350,26 @@ export class ModerationService implements OnModuleInit {
     reason: TrustChangeReason,
     sourceEventId?: string,
     sourceEventKind?: string,
+    roleType: 'MENTOR' | 'LEARNER' = 'MENTOR',
   ) {
     const ts = await this.getOrCreateTrustScore(userId);
-    const scoreBefore = ts.score;
-    const scoreAfter = Math.max(0, Math.min(200, scoreBefore + delta));
-    const tier = this.calculateTier(scoreAfter);
+    let scoreBefore = 100;
+    let scoreAfter = 100;
 
-    ts.score = scoreAfter;
-    ts.tier = tier;
+    if (roleType === 'LEARNER') {
+      scoreBefore = ts.learnerScore ?? 100;
+      scoreAfter = Math.max(0, Math.min(100, scoreBefore + delta));
+      ts.learnerScore = scoreAfter;
+      ts.learnerTier = this.calculateTier(scoreAfter);
+    } else {
+      scoreBefore = ts.mentorScore ?? ts.score ?? 100;
+      scoreAfter = Math.max(0, Math.min(100, scoreBefore + delta));
+      ts.mentorScore = scoreAfter;
+      ts.score = scoreAfter;
+      ts.mentorTier = this.calculateTier(scoreAfter);
+      ts.tier = ts.mentorTier;
+    }
+
     ts.lastUpdatedAt = new Date();
     await this.trustScoreRepo.save(ts);
 
@@ -356,6 +379,7 @@ export class ModerationService implements OnModuleInit {
       trustScore: ts,
       delta,
       reason,
+      roleType,
       scoreBefore,
       scoreAfter,
       sourceEventId,
@@ -363,26 +387,42 @@ export class ModerationService implements OnModuleInit {
     });
     await this.trustScoreChangeRepo.save(change);
 
-    this.logger.log(`Trust score updated for user ${userId}: ${scoreBefore} -> ${scoreAfter} (${delta > 0 ? '+' : ''}${delta})`);
+    this.logger.log(
+      `Trust score updated for user ${userId} [${roleType}]: ${scoreBefore} -> ${scoreAfter} (${delta > 0 ? '+' : ''}${delta})`,
+    );
 
     // Emit event
     this.rmqClient.emit(MODERATION_EVENTS.TRUST_SCORE_UPDATED, {
       userId,
-      score: scoreAfter,
+      score: ts.mentorScore,
+      mentorScore: ts.mentorScore,
+      learnerScore: ts.learnerScore,
+      roleType,
       delta,
       reason,
-      tier,
+      tier: ts.tier,
     });
 
     return ts;
   }
 
   async getTrustScore(userId: string) {
-    return this.getOrCreateTrustScore(userId);
+    const ts = await this.getOrCreateTrustScore(userId);
+    return {
+      id: ts.id,
+      userId: ts.userId,
+      score: ts.mentorScore ?? ts.score ?? 100,
+      mentorScore: ts.mentorScore ?? ts.score ?? 100,
+      learnerScore: ts.learnerScore ?? 100,
+      tier: ts.mentorTier || ts.tier || 'GOOD',
+      mentorTier: ts.mentorTier || 'GOOD',
+      learnerTier: ts.learnerTier || 'GOOD',
+      lastUpdatedAt: ts.lastUpdatedAt || new Date(),
+    };
   }
 
   async getTrustScoreHistory(userId: string) {
-    const trustScore = await this.getOrCreateTrustScore(userId);
+    const trustScore = await this.getTrustScore(userId);
     const history = await this.trustScoreChangeRepo.find({
       where: { userId },
       order: { occurredAt: 'DESC' },
@@ -403,17 +443,19 @@ export class ModerationService implements OnModuleInit {
     delta: number,
     adminId: string,
     note?: string,
+    roleType: 'MENTOR' | 'LEARNER' = 'MENTOR',
   ) {
     const change = await this.changeTrustScore(
       userId,
       delta,
       TrustChangeReason.ADMIN_ADJUSTMENT,
       adminId,
-      'ADMIN_MANUAL_ADJUSTMENT',
+      note || 'ADMIN_MANUAL_ADJUSTMENT',
+      roleType,
     );
     return {
       success: true,
-      message: `Đã điều chỉnh ${delta > 0 ? `+${delta}` : delta} điểm uy tín cho người dùng thành công`,
+      message: `Đã điều chỉnh ${delta > 0 ? `+${delta}` : delta} điểm uy tín [${roleType}] cho người dùng thành công`,
       change,
     };
   }
@@ -421,12 +463,29 @@ export class ModerationService implements OnModuleInit {
   // ==================== VIOLATION REPORTS ====================
 
   async createReport(reporterId: string, dto: CreateViolationReportDto) {
+    let targetType = ReportTargetType.USER;
+    const rawTargetType = (dto.targetType || '').toUpperCase();
+    if (rawTargetType === 'POST') {
+      targetType = ReportTargetType.POST;
+    } else if (
+      rawTargetType.includes('SESSION') ||
+      rawTargetType.includes('BOOKING') ||
+      rawTargetType.includes('ROOM')
+    ) {
+      targetType = ReportTargetType.SESSION;
+    }
+
+    let category = ReportCategory.OTHER;
+    if (Object.values(ReportCategory).includes(dto.category as ReportCategory)) {
+      category = dto.category as ReportCategory;
+    }
+
     const report = this.reportRepo.create({
       reporterId,
-      targetUserId: dto.targetUserId,
-      targetType: (dto.targetType as ReportTargetType) || ReportTargetType.USER,
-      targetId: dto.targetId || dto.targetUserId,
-      category: (dto.category as ReportCategory) || ReportCategory.OTHER,
+      targetUserId: dto.targetUserId || dto.targetId || reporterId,
+      targetType,
+      targetId: dto.targetId || dto.targetUserId || reporterId,
+      category,
       description: dto.description?.trim() || undefined,
       status: ReportStatus.OPEN,
     });
@@ -434,13 +493,14 @@ export class ModerationService implements OnModuleInit {
     const savedReport = await this.reportRepo.save(report);
 
     if (dto.evidenceUrls && dto.evidenceUrls.length > 0) {
-      const evidences = dto.evidenceUrls.map((ev) =>
-        this.evidenceRepo.create({
+      const evidences = dto.evidenceUrls.map((ev) => {
+        const kind = ev.kind?.toUpperCase() === 'VIDEO' ? EvidenceKind.VIDEO : EvidenceKind.IMAGE;
+        return this.evidenceRepo.create({
           reportId: savedReport.id,
           fileUrl: ev.url,
-          kind: (ev.kind as EvidenceKind) || EvidenceKind.IMAGE,
-        }),
-      );
+          kind,
+        });
+      });
       await this.evidenceRepo.save(evidences);
     }
 
@@ -448,6 +508,8 @@ export class ModerationService implements OnModuleInit {
       reportId: savedReport.id,
       reporterId: savedReport.reporterId,
       targetUserId: savedReport.targetUserId,
+      targetType: savedReport.targetType,
+      targetId: savedReport.targetId,
       category: savedReport.category,
     });
 
@@ -458,20 +520,40 @@ export class ModerationService implements OnModuleInit {
   }
 
   async getMyReports(reporterId: string) {
-    return this.reportRepo.find({
+    const reports = await this.reportRepo.find({
       where: { reporterId },
       relations: { evidences: true, decisions: true },
       order: { submittedAt: 'DESC' },
     });
+
+    return Promise.all(
+      reports.map(async (r) => {
+        const reported = await this.getUserSnapshot(r.targetUserId);
+        return {
+          ...r,
+          reportedUserName: reported.name,
+          reportedUserAvatar: reported.avatar,
+        };
+      }),
+    );
   }
 
-  async getReports(status?: ReportStatus, page = 1, limit = 20) {
+  async getReports(status?: string | ReportStatus, page = 1, limit = 20) {
     const take = Math.max(1, Math.min(50, limit));
     const skip = (Math.max(1, page) - 1) * take;
 
     const where: any = {};
     if (status) {
-      where.status = status;
+      const s = String(status).toUpperCase().trim();
+      if (s === 'PENDING' || s === 'OPEN') {
+        where.status = ReportStatus.OPEN;
+      } else if (s === 'INVESTIGATING' || s === 'UNDER_REVIEW') {
+        where.status = ReportStatus.UNDER_REVIEW;
+      } else if (s === 'RESOLVED') {
+        where.status = ReportStatus.RESOLVED;
+      } else if (s === 'DISMISSED' || s === 'REJECTED') {
+        where.status = ReportStatus.REJECTED;
+      }
     }
 
     const [reports, total] = await this.reportRepo.findAndCount({
@@ -482,8 +564,52 @@ export class ModerationService implements OnModuleInit {
       skip,
     });
 
+    const enrichedReports = await Promise.all(
+      reports.map(async (r) => {
+        const [reporter, reported] = await Promise.all([
+          this.getUserSnapshot(r.reporterId),
+          this.getUserSnapshot(r.targetUserId),
+        ]);
+
+        const statusMap: Record<string, string> = {
+          OPEN: 'PENDING',
+          UNDER_REVIEW: 'INVESTIGATING',
+          RESOLVED: 'RESOLVED',
+          REJECTED: 'DISMISSED',
+        };
+
+        const latestDecision =
+          r.decisions && r.decisions.length > 0
+            ? r.decisions[r.decisions.length - 1]
+            : undefined;
+
+        return {
+          ...r,
+          reporterName: reporter.name,
+          reporterAvatar: reporter.avatar,
+          reportedUserId: r.targetUserId,
+          reportedUserName: reported.name,
+          reportedUserAvatar: reported.avatar,
+          status: statusMap[r.status] || r.status,
+          rawStatus: r.status,
+          createdAt: r.submittedAt instanceof Date ? r.submittedAt.toISOString() : r.submittedAt,
+          updatedAt: (r.closedAt || r.submittedAt) instanceof Date ? (r.closedAt || r.submittedAt).toISOString() : (r.closedAt || r.submittedAt),
+          decision: latestDecision
+            ? {
+                id: latestDecision.id,
+                moderatorId: latestDecision.moderatorId,
+                decisionType: latestDecision.decision,
+                adminNotes: latestDecision.reason,
+                trustScoreDelta: latestDecision.trustDelta,
+                createdAt: latestDecision.decidedAt instanceof Date ? latestDecision.decidedAt.toISOString() : latestDecision.decidedAt,
+              }
+            : undefined,
+        };
+      }),
+    );
+
     return {
-      reports,
+      reports: enrichedReports,
       pagination: {
         page,
         limit: take,
@@ -502,36 +628,282 @@ export class ModerationService implements OnModuleInit {
       throw new NotFoundException('Không tìm thấy báo cáo vi phạm');
     }
 
+    let mappedDecision: ModerationDecisionType = ModerationDecisionType.WARN;
+    const rawDecision = String(dto.decisionType || dto.decision || '').toUpperCase();
+    if (rawDecision === 'WARNING' || rawDecision === 'WARN') {
+      mappedDecision = ModerationDecisionType.WARN;
+    } else if (
+      rawDecision === 'DEDUCT_TRUST_SCORE' ||
+      rawDecision === 'DEDUCT_TRUST' ||
+      rawDecision === 'DEDUCT_CREDIT'
+    ) {
+      mappedDecision = ModerationDecisionType.DEDUCT_TRUST;
+    } else if (
+      rawDecision === 'SUSPEND_TEMPORARY' ||
+      rawDecision === 'BAN_PERMANENT' ||
+      rawDecision === 'LOCK_ACCOUNT'
+    ) {
+      mappedDecision = ModerationDecisionType.LOCK_ACCOUNT;
+    } else if (rawDecision === 'DISMISS' || rawDecision === 'NO_ACTION') {
+      mappedDecision = ModerationDecisionType.NO_ACTION;
+    } else if (rawDecision === 'REMOVE_CONTENT') {
+      mappedDecision = ModerationDecisionType.REMOVE_CONTENT;
+    }
+
+    const noteText = dto.note?.trim() || dto.adminNotes?.trim() || undefined;
+
     const decision = this.decisionRepo.create({
       reportId: dto.reportId,
       moderatorId,
-      decision: (dto.decisionType as ModerationDecisionType) || ModerationDecisionType.WARN,
-      reason: dto.note || undefined,
+      decision: mappedDecision,
+      reason: noteText,
       trustDelta: dto.trustScorePenalty ? -dto.trustScorePenalty : 0,
     });
     await this.decisionRepo.save(decision);
 
     // Apply trust penalty if specified
     if (dto.trustScorePenalty && dto.trustScorePenalty > 0) {
-      await this.changeTrustScore(
-        report.targetUserId,
-        -dto.trustScorePenalty,
-        TrustChangeReason.ADMIN_ADJUSTMENT,
-        report.id,
-        'VIOLATION_REPORT',
-      );
+      if (dto.targetRole === 'ALL') {
+        await this.changeTrustScore(
+          report.targetUserId,
+          -dto.trustScorePenalty,
+          TrustChangeReason.ADMIN_ADJUSTMENT,
+          report.id,
+          'VIOLATION_REPORT',
+          'MENTOR',
+        );
+        await this.changeTrustScore(
+          report.targetUserId,
+          -dto.trustScorePenalty,
+          TrustChangeReason.ADMIN_ADJUSTMENT,
+          report.id,
+          'VIOLATION_REPORT',
+          'LEARNER',
+        );
+      } else {
+        const penaltyRole = dto.targetRole === 'LEARNER' ? 'LEARNER' : 'MENTOR';
+        await this.changeTrustScore(
+          report.targetUserId,
+          -dto.trustScorePenalty,
+          TrustChangeReason.ADMIN_ADJUSTMENT,
+          report.id,
+          'VIOLATION_REPORT',
+          penaltyRole,
+        );
+      }
     }
 
-    report.status = ReportStatus.RESOLVED;
+    report.status =
+      mappedDecision === ModerationDecisionType.NO_ACTION
+        ? ReportStatus.REJECTED
+        : ReportStatus.RESOLVED;
     report.closedAt = new Date();
     await this.reportRepo.save(report);
+
+    // 1. Gửi thông báo đến người đã gửi báo cáo (Reporter)
+    if (report.reporterId) {
+      let reporterMessage = `Báo cáo vi phạm của bạn (#${report.id.substring(0, 8)}) đã được Ban quản trị xem xét và xử lý hoàn tất.`;
+      if (mappedDecision === ModerationDecisionType.NO_ACTION) {
+        reporterMessage = `Báo cáo vi phạm của bạn (#${report.id.substring(0, 8)}) đã được xem xét. Kết quả: Không phát hiện vi phạm quy chuẩn cộng đồng.${noteText ? ` Ghi chú: ${noteText}` : ''}`;
+      } else if (mappedDecision === ModerationDecisionType.WARN) {
+        reporterMessage = `Báo cáo vi phạm (#${report.id.substring(0, 8)}) của bạn đã được tiếp nhận và xử lý. Thành viên vi phạm đã bị nhắc nhở/cảnh cáo nghiêm khắc.`;
+      } else if (mappedDecision === ModerationDecisionType.DEDUCT_TRUST) {
+        reporterMessage = `Báo cáo vi phạm (#${report.id.substring(0, 8)}) của bạn đã được giải quyết. Thành viên vi phạm đã bị xử phạt trừ ${dto.trustScorePenalty || 0} điểm uy tín.`;
+      } else if (mappedDecision === ModerationDecisionType.LOCK_ACCOUNT) {
+        reporterMessage = `Báo cáo vi phạm (#${report.id.substring(0, 8)}) của bạn đã được giải quyết. Tài khoản vi phạm đã bị áp dụng biện pháp đình chỉ hoạt động.`;
+      }
+
+      this.rmqClient.emit(NOTIFICATION_EVENTS.CREATE, {
+        userId: report.reporterId,
+        title: 'Kết quả xử lý báo cáo vi phạm 🛡️',
+        content: reporterMessage,
+        type: 'MODERATION',
+        referenceId: report.id,
+      });
+    }
+
+    // 2. Gửi thông báo đến người bị tố cáo (Target User)
+    if (report.targetUserId) {
+      let targetMessage = `Ban quản trị đã xem xét sự việc liên quan đến tài khoản của bạn.`;
+      if (mappedDecision === ModerationDecisionType.NO_ACTION) {
+        targetMessage = `Khiếu nại đối với tài khoản của bạn (mã #${report.id.substring(0, 8)}) đã được Ban quản trị xem xét và bác bỏ do không phát hiện vi phạm.`;
+      } else if (mappedDecision === ModerationDecisionType.WARN) {
+        targetMessage = `Bạn vừa nhận được cảnh cáo nhắc nhở từ Ban quản trị về hành vi vi phạm quy chuẩn cộng đồng.${noteText ? ` Ghi chú: ${noteText}` : ''}`;
+      } else if (mappedDecision === ModerationDecisionType.DEDUCT_TRUST) {
+        targetMessage = `Bạn bị trừ ${dto.trustScorePenalty || 0} điểm uy tín do vi phạm quy chuẩn cộng đồng.${noteText ? ` Lý do: ${noteText}` : ''}`;
+      } else if (mappedDecision === ModerationDecisionType.LOCK_ACCOUNT) {
+        targetMessage = `Tài khoản của bạn đã bị áp dụng biện pháp chế tài/khóa tài khoản do vi phạm nghiêm trọng quy chuẩn cộng đồng.${noteText ? ` Lý do: ${noteText}` : ''}`;
+      }
+
+      this.rmqClient.emit(NOTIFICATION_EVENTS.CREATE, {
+        userId: report.targetUserId,
+        title: 'Thông báo xử lý vi phạm từ Quản trị viên ⚠️',
+        content: targetMessage,
+        type: 'MODERATION',
+        referenceId: report.id,
+      });
+    }
 
     this.rmqClient.emit(MODERATION_EVENTS.REPORT_RESOLVED, {
       reportId: report.id,
       moderatorId,
-      decisionType: dto.decisionType,
+      decisionType: rawDecision,
     });
 
     return report;
+  }
+
+  // ==================== LEADERBOARD (BẢNG XẾP HẠNG THI ĐUA) ====================
+
+  /**
+   * Lấy Bảng Xếp Hạng Top Người Dạy Tiêu Biểu (Mentor Leaderboard)
+   */
+  async getMentorLeaderboard(timeframe = 'all', limit = 20) {
+    // 1. Lấy thông tin review & rating của tất cả mentors
+    const ratings = await this.ratingRepo
+      .createQueryBuilder('r')
+      .select('r.mentorId', 'mentorId')
+      .addSelect('AVG(r.stars)', 'avgStars')
+      .addSelect('COUNT(r.id)', 'totalReviews')
+      .addSelect('COUNT(CASE WHEN r.stars = 5 THEN 1 END)', 'fiveStarCount')
+      .groupBy('r.mentorId')
+      .getRawMany();
+
+    const ratingMap = new Map<string, { avgStars: number; totalReviews: number; fiveStarCount: number }>();
+    for (const r of ratings) {
+      if (r.mentorId) {
+        ratingMap.set(r.mentorId, {
+          avgStars: Number(Number(r.avgStars || 0).toFixed(1)),
+          totalReviews: Number(r.totalReviews || 0),
+          fiveStarCount: Number(r.fiveStarCount || 0),
+        });
+      }
+    }
+
+    // 2. Lấy danh sách profiles từ User Service
+    let profiles: any[] = [];
+    try {
+      const userUrl = process.env.USER_SERVICE_URL || 'http://localhost:3002';
+      const res = await fetch(`${userUrl}/users?limit=100`);
+      if (res.ok) {
+        const data = await res.json();
+        profiles = data.users || [];
+      }
+    } catch (err) {
+      this.logger.debug('Could not fetch user profiles for mentor leaderboard:', err);
+    }
+
+    // 3. Tính điểm MentorRankScore theo công thức:
+    // (Stars * 200) + (TeachingMinutes * 0.5) + (StudentsTaught * 10) + (5StarReviews * 15)
+    const items = profiles.map((p) => {
+      const r = ratingMap.get(p.userId) || { avgStars: 0, totalReviews: 0, fiveStarCount: 0 };
+      const teachingMins = p.totalTeachingMinutes || 0;
+      const studentsTaught = p.totalSessionsCompleted || r.totalReviews || 0;
+      
+      const starScore = r.totalReviews > 0 ? (r.avgStars * 200) : 0;
+      const rankScore = Math.round(
+        starScore + (teachingMins * 0.5) + (studentsTaught * 10) + (r.fiveStarCount * 15),
+      );
+
+      return {
+        userId: p.userId,
+        name: p.displayName || p.fullName || 'Người Dạy',
+        avatar: p.avatarUrl || '',
+        headline: p.bio || 'Chuyên gia hướng dẫn tận tâm',
+        mentorTrustScore: p.mentorTrustScore ?? p.trustScore ?? 100,
+        averageRating: r.avgStars,
+        totalReviews: r.totalReviews,
+        totalTeachingMinutes: teachingMins,
+        totalStudentsTaught: studentsTaught,
+        fiveStarReviewsCount: r.fiveStarCount,
+        rankScore,
+      };
+    });
+
+    items.sort((a, b) => b.rankScore - a.rankScore);
+
+    const rankedItems = items.slice(0, limit).map((item, index) => ({
+      ...item,
+      rank: index + 1,
+      badgeTitle: index === 0 ? 'Master Mentor 👑' : index < 3 ? 'Top Expert ⭐' : index < 10 ? 'Senior Mentor 🌟' : 'Active Mentor',
+    }));
+
+    return {
+      timeframe,
+      items: rankedItems,
+      total: rankedItems.length,
+    };
+  }
+
+  /**
+   * Lấy Bảng Xếp Hạng Top Học Viên Tích Cực (Learner Leaderboard)
+   */
+  async getLearnerLeaderboard(timeframe = 'all', limit = 20) {
+    let profiles: any[] = [];
+    try {
+      const userUrl = process.env.USER_SERVICE_URL || 'http://localhost:3002';
+      const res = await fetch(`${userUrl}/users?limit=100`);
+      if (res.ok) {
+        const data = await res.json();
+        profiles = data.users || [];
+      }
+    } catch (err) {
+      this.logger.debug('Could not fetch user profiles for learner leaderboard:', err);
+    }
+
+    // Đếm số lượng review đã đóng góp
+    const reviewCounts = await this.ratingRepo
+      .createQueryBuilder('r')
+      .select('r.learnerId', 'learnerId')
+      .addSelect('COUNT(r.id)', 'count')
+      .groupBy('r.learnerId')
+      .getRawMany();
+
+    const reviewMap = new Map<string, number>();
+    for (const rc of reviewCounts) {
+      if (rc.learnerId) {
+        reviewMap.set(rc.learnerId, Number(rc.count || 0));
+      }
+    }
+
+    // Tính điểm LearnerRankScore theo công thức:
+    // (LearningMinutes * 0.8) + (SessionsCompleted * 20) + (SkillsLearned * 30) + (ReviewsSubmitted * 10)
+    const items = profiles.map((p) => {
+      const learningMins = p.totalLearningMinutes || 0;
+      const sessions = p.totalSessionsCompleted || 0;
+      const skillsCount = (p.skills || []).length;
+      const reviewsCount = reviewMap.get(p.userId) || 0;
+
+      const rankScore = Math.round(
+        (learningMins * 0.8) + (sessions * 20) + (skillsCount * 30) + (reviewsCount * 10),
+      );
+
+      return {
+        userId: p.userId,
+        name: p.displayName || p.fullName || 'Học Viên',
+        avatar: p.avatarUrl || '',
+        headline: p.bio || 'Học viên tích cực phát triển kỹ năng',
+        learnerTrustScore: p.learnerTrustScore ?? 100,
+        totalLearningMinutes: learningMins,
+        totalSessionsCompleted: sessions,
+        skillsLearnedCount: skillsCount,
+        reviewsSubmittedCount: reviewsCount,
+        rankScore,
+      };
+    });
+
+    items.sort((a, b) => b.rankScore - a.rankScore);
+
+    const rankedItems = items.slice(0, limit).map((item, index) => ({
+      ...item,
+      rank: index + 1,
+      badgeTitle: index === 0 ? 'Học Giả Xuất Chúng 👑' : index < 3 ? 'Ong Chăm Chỉ ⭐' : index < 10 ? 'Nhà Khám Phá 🌟' : 'Học Viên Tiên Phong',
+    }));
+
+    return {
+      timeframe,
+      items: rankedItems,
+      total: rankedItems.length,
+    };
   }
 }

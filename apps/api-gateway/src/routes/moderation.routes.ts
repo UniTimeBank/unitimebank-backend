@@ -99,7 +99,7 @@ export class ModerationRoutes {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Admin điều chỉnh điểm uy tín người dùng thủ công (+/- điểm)' })
   async adminAdjustTrustScore(
-    @Body() body: { userId: string; delta: number; note?: string },
+    @Body() body: { userId: string; delta: number; note?: string; roleType?: 'MENTOR' | 'LEARNER' },
     @Req() req: any,
   ) {
     const adminId = req.user.id;
@@ -108,11 +108,44 @@ export class ModerationRoutes {
       delta: body.delta,
       adminId,
       note: body.note,
+      roleType: body.roleType || 'MENTOR',
     });
   }
 
   // ════════════════════════════════════════════════════════════════
-  // 3. BÁO CÁO VI PHẠM (VIOLATION REPORTS)
+  // 3. BẢNG XẾP HẠNG THI ĐUA (LEADERBOARD)
+  // ════════════════════════════════════════════════════════════════
+
+  @Get('leaderboard/mentors')
+  @ApiOperation({ summary: 'Lấy Bảng Vàng Top Người Dạy Tiêu Biểu (Mentor Leaderboard)' })
+  @ApiQuery({ name: 'timeframe', required: false, enum: ['weekly', 'monthly', 'all'] })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async getMentorLeaderboard(
+    @Query('timeframe') timeframe?: string,
+    @Query('limit') limit?: number,
+  ) {
+    return this.moderationClient.send('moderation.getMentorLeaderboard', {
+      timeframe: timeframe || 'all',
+      limit: limit ? Number(limit) : 20,
+    });
+  }
+
+  @Get('leaderboard/learners')
+  @ApiOperation({ summary: 'Lấy Bảng Vàng Top Học Viên Tích Cực (Learner Leaderboard)' })
+  @ApiQuery({ name: 'timeframe', required: false, enum: ['weekly', 'monthly', 'all'] })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async getLearnerLeaderboard(
+    @Query('timeframe') timeframe?: string,
+    @Query('limit') limit?: number,
+  ) {
+    return this.moderationClient.send('moderation.getLearnerLeaderboard', {
+      timeframe: timeframe || 'all',
+      limit: limit ? Number(limit) : 20,
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 4. BÁO CÁO VI PHẠM (VIOLATION REPORTS)
   // ════════════════════════════════════════════════════════════════
 
   @Post('reports')

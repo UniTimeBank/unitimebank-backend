@@ -26,6 +26,6 @@ export class ModerationDecision {
   @Column({ nullable: true })
   reason: string;
 
-  @CreateDateColumn({ name: 'decided_at' })
+  @CreateDateColumn({ name: 'decided_at', type: 'timestamptz' })
   decidedAt: Date;
 }

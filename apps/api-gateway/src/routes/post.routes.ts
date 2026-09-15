@@ -9,11 +9,13 @@ import {
   Query,
   Req,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@app/common';
 import { PostClient } from '../clients/post.client';
 import { UserClient } from '../clients/user.client';
+import { SessionClient } from '../clients/session.client';
 import {
   CreateMentorPostDto,
   UpdateMentorPostDto,
@@ -41,6 +43,7 @@ export class PostMentorRoutes {
   constructor(
     private readonly postClient: PostClient,
     private readonly userClient: UserClient,
+    private readonly sessionClient: SessionClient,
   ) {}
 
   /** Mentor tạo bài đăng nhận dạy mới */
@@ -53,6 +56,12 @@ export class PostMentorRoutes {
   @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
   async createMentorPost(@Body() dto: CreateMentorPostDto, @Req() req: any) {
     const mentorId = req.user?.id || req.user?.sub;
+
+    const inActiveGroup = await this.sessionClient.send('session.checkUserInActiveGroupRoom', { userId: mentorId });
+    if (inActiveGroup) {
+      throw new BadRequestException('Bạn đang tham gia phòng học nhóm trực tuyến. Vui lòng rời phòng học trước khi tạo bài đăng mới.');
+    }
+
     let userSnapshot: any = undefined;
     if (req.headers.authorization) {
       try {
@@ -151,6 +160,7 @@ export class PostLearnerRoutes {
   constructor(
     private readonly postClient: PostClient,
     private readonly userClient: UserClient,
+    private readonly sessionClient: SessionClient,
   ) {}
 
   /** Learner tạo bài tìm người dạy */
@@ -162,6 +172,12 @@ export class PostLearnerRoutes {
   @ApiResponse({ status: 201, description: 'Tạo yêu cầu thành công', type: LearnerRequestResponseDto })
   async createLearnerRequest(@Body() dto: CreateLearnerRequestDto, @Req() req: any) {
     const learnerId = req.user?.id || req.user?.sub;
+
+    const inActiveGroup = await this.sessionClient.send('session.checkUserInActiveGroupRoom', { userId: learnerId });
+    if (inActiveGroup) {
+      throw new BadRequestException('Bạn đang tham gia phòng học nhóm trực tuyến. Vui lòng rời phòng học trước khi tạo yêu cầu học tập mới.');
+    }
+
     let userSnapshot: any = undefined;
     if (req.headers.authorization) {
       try {

@@ -32,6 +32,21 @@ export class UserProfile {
   @Column({ name: 'trust_score', default: 100 })
   trustScore: number;
 
+  @Column({ name: 'mentor_trust_score', default: 100 })
+  mentorTrustScore: number;
+
+  @Column({ name: 'learner_trust_score', default: 100 })
+  learnerTrustScore: number;
+
+  @Column({ name: 'total_teaching_minutes', default: 0 })
+  totalTeachingMinutes: number;
+
+  @Column({ name: 'total_learning_minutes', default: 0 })
+  totalLearningMinutes: number;
+
+  @Column({ name: 'total_sessions_completed', default: 0 })
+  totalSessionsCompleted: number;
+
   @Column({ name: 'onboarding_completed', default: false })
   onboardingCompleted: boolean;
 

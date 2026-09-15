@@ -37,6 +37,13 @@ export class CreateGroupRoomDto {
   category?: string;
 
   @IsOptional()
+  skills?: string[];
+
+  @IsOptional()
+  @IsString()
+  coverImage?: string;
+
+  @IsOptional()
   @IsNumber()
   @Min(1)
   maxParticipants?: number;

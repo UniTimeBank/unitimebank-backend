@@ -13,16 +13,29 @@ export class TrustScore {
   @Column({ default: 100 })
   score: number;
 
+  @Column({ name: 'mentor_score', default: 100 })
+  mentorScore: number;
+
+  @Column({ name: 'learner_score', default: 100 })
+  learnerScore: number;
+
   @Column({ type: 'enum', enum: TrustTier, default: TrustTier.GOOD })
   tier: TrustTier;
+
+  @Column({ name: 'mentor_tier', type: 'enum', enum: TrustTier, default: TrustTier.GOOD })
+  mentorTier: TrustTier;
+
+  @Column({ name: 'learner_tier', type: 'enum', enum: TrustTier, default: TrustTier.GOOD })
+  learnerTier: TrustTier;
+
 
   @VersionColumn()
   version: number;
 
-  @UpdateDateColumn({ name: 'last_updated_at' })
+  @UpdateDateColumn({ name: 'last_updated_at', type: 'timestamptz' })
   lastUpdatedAt: Date;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @OneToMany(() => TrustScoreChange, (change) => change.trustScore)

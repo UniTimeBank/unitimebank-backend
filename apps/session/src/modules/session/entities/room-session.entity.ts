@@ -61,6 +61,12 @@ export class RoomSession {
   @Column({ name: 'post_id', type: 'varchar', nullable: true })
   postId?: string;
 
+  @Column({ type: 'text', array: true, nullable: true })
+  skills?: string[];
+
+  @Column({ name: 'cover_image', type: 'text', nullable: true })
+  coverImage?: string;
+
   @OneToMany(() => RoomParticipant, (p) => p.roomSession)
   participants: RoomParticipant[];
 

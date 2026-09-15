@@ -27,10 +27,15 @@ import {
   SendRoomChatMessageDto,
 } from '@app/contracts/session';
 
+import { UserClient } from '../clients/user.client';
+
 @ApiTags('Session - Phòng học trực tuyến & Thời gian thực')
 @Controller('rooms')
 export class SessionRoutes {
-  constructor(private readonly sessionClient: SessionClient) {}
+  constructor(
+    private readonly sessionClient: SessionClient,
+    private readonly userClient: UserClient,
+  ) {}
 
   // ════════════════════════════════════════════════════════════════
   // 1. PHÒNG HỌC 1:1 (ONE-ON-ONE)
@@ -127,7 +132,71 @@ export class SessionRoutes {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'page', required: false, type: Number })
   async getActiveGroupRooms(@Query() query: GetActiveGroupRoomsQueryDto) {
-    return this.sessionClient.send('session.getActiveGroupRooms', { query });
+    const res: any = await this.sessionClient.send('session.getActiveGroupRooms', { query });
+    if (!res || !Array.isArray(res.rooms)) return res;
+
+    // Lấy thông tin hồ sơ và kỹ năng thực tế từ database của từng Mentor
+    const enrichedRooms = await Promise.all(
+      res.rooms.map(async (room: any) => {
+        if (!room.mentorId) return room;
+        try {
+          const [profileRes, skillsRes] = await Promise.allSettled([
+            this.userClient.getPublicProfile(room.mentorId),
+            this.userClient.getSkillsByUserId(room.mentorId),
+          ]);
+
+          const userProfile = profileRes.status === 'fulfilled' ? profileRes.value : null;
+          const userSkills: string[] =
+            skillsRes.status === 'fulfilled' && Array.isArray(skillsRes.value?.skills)
+              ? skillsRes.value.skills.map((s: any) => s.skillName).filter(Boolean)
+              : [];
+
+          const finalSkills =
+            Array.isArray(room.skills) && room.skills.length > 0
+              ? room.skills
+              : userSkills;
+
+          const CATEGORY_NAMES: Record<string, string> = {
+            PROGRAMMING: 'Lập trình',
+            LANGUAGE: 'Ngoại ngữ',
+            DESIGN: 'Thiết kế',
+            ACADEMIC: 'Học thuật',
+            BUSINESS: 'Kinh doanh',
+            SOFT_SKILLS: 'Kỹ năng mềm',
+            MUSIC: 'Âm nhạc',
+            SPORTS: 'Thể thao',
+            OTHER: 'Khác',
+          };
+          const catName =
+            (room.category && CATEGORY_NAMES[room.category.toUpperCase()]) || room.category;
+
+          return {
+            ...room,
+            mentorName:
+              userProfile?.displayName ||
+              userProfile?.fullName ||
+              userProfile?.name ||
+              room.mentorName,
+            mentorAvatar: userProfile?.avatarUrl || room.mentorAvatar,
+            mentorTitle:
+              userProfile?.headline ||
+              (catName ? `Chuyên môn: ${catName}` : 'Người hướng dẫn phòng'),
+            mentorTrustScore:
+              typeof userProfile?.trustScore === 'number'
+                ? userProfile.trustScore
+                : (room.mentorTrustScore || 100),
+            skills: finalSkills,
+          };
+        } catch {
+          return room;
+        }
+      }),
+    );
+
+    return {
+      ...res,
+      rooms: enrichedRooms,
+    };
   }
 
   @Get('group/history')

@@ -29,7 +29,7 @@ export class ViolationReport {
   @Column({ type: 'enum', enum: ReportStatus, default: ReportStatus.OPEN })
   status: ReportStatus;
 
-  @CreateDateColumn({ name: 'submitted_at' })
+  @CreateDateColumn({ name: 'submitted_at', type: 'timestamptz' })
   submittedAt: Date;
 
   @Column({ name: 'closed_at', type: 'timestamptz', nullable: true })

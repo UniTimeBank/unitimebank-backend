@@ -29,7 +29,7 @@ export class ReportEvidence {
   @Column({ name: 'size_bytes', default: 0 })
   sizeBytes: number;
 
-  @CreateDateColumn({ name: 'uploaded_at' })
+  @CreateDateColumn({ name: 'uploaded_at', type: 'timestamptz' })
   uploadedAt: Date;
 }
 

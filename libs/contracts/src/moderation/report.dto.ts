@@ -55,10 +55,15 @@ export class ResolveReportDto {
   @IsString()
   reportId?: string;
 
-  @ApiProperty({ description: 'Quyết định xử lý: NO_ACTION, WARN, REMOVE_CONTENT, DEDUCT_TRUST, LOCK_ACCOUNT' })
-  @IsNotEmpty()
+  @ApiPropertyOptional({ description: 'Quyết định xử lý: NO_ACTION, WARN, REMOVE_CONTENT, DEDUCT_TRUST, LOCK_ACCOUNT' })
+  @IsOptional()
   @IsString()
-  decisionType: string;
+  decisionType?: string;
+
+  @ApiPropertyOptional({ description: 'Quyết định xử lý (alias)' })
+  @IsOptional()
+  @IsString()
+  decision?: string;
 
   @ApiPropertyOptional({ description: 'Loại hình phạt' })
   @IsOptional()
@@ -70,10 +75,30 @@ export class ResolveReportDto {
   @IsString()
   note?: string;
 
+  @ApiPropertyOptional({ description: 'Ghi chú của quản trị viên (alias)' })
+  @IsOptional()
+  @IsString()
+  adminNotes?: string;
+
   @ApiPropertyOptional({ description: 'Số điểm uy tín bị trừ (nếu có)' })
   @IsOptional()
   @IsNumber()
   trustScorePenalty?: number;
+
+  @ApiPropertyOptional({ description: 'Vai trò bị áp dụng phạt điểm uy tín (MENTOR hoặc LEARNER)', enum: ['MENTOR', 'LEARNER', 'ALL'] })
+  @IsOptional()
+  @IsString()
+  targetRole?: 'MENTOR' | 'LEARNER' | 'ALL';
+
+  @ApiPropertyOptional({ description: 'Số credit phạt thu hồi (nếu có)' })
+  @IsOptional()
+  @IsNumber()
+  creditPenalty?: number;
+
+  @ApiPropertyOptional({ description: 'Số ngày tạm khóa tài khoản' })
+  @IsOptional()
+  @IsNumber()
+  suspendDays?: number;
 }
 
 export class ViolationReportResponseDto {

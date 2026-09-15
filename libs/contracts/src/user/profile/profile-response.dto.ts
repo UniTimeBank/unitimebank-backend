@@ -23,8 +23,23 @@ export class GetUserProfileResponseDto {
   })
   bio: string | null;
 
-  @ApiProperty({ example: 100, description: 'Điểm uy tín (0-100)' })
+  @ApiProperty({ example: 100, description: 'Điểm uy tín chung (0-100)' })
   trustScore: number;
+
+  @ApiPropertyOptional({ example: 100, description: 'Điểm uy tín Người dạy (0-100)' })
+  mentorTrustScore?: number;
+
+  @ApiPropertyOptional({ example: 100, description: 'Điểm uy tín Học viên (0-100)' })
+  learnerTrustScore?: number;
+
+  @ApiPropertyOptional({ example: 0, description: 'Tổng số phút giảng dạy' })
+  totalTeachingMinutes?: number;
+
+  @ApiPropertyOptional({ example: 0, description: 'Tổng số phút học tập' })
+  totalLearningMinutes?: number;
+
+  @ApiPropertyOptional({ example: 0, description: 'Tổng số buổi học đã hoàn thành' })
+  totalSessionsCompleted?: number;
 
   @ApiProperty({ example: false, description: 'Đã hoàn thành onboarding' })
   onboardingCompleted: boolean;
@@ -64,8 +79,14 @@ export class GetPublicProfileResponseDto {
   })
   bio: string | null;
 
-  @ApiProperty({ example: 85, description: 'Điểm uy tín (0-100)' })
+  @ApiProperty({ example: 100, description: 'Điểm uy tín chung (0-100)' })
   trustScore: number;
+
+  @ApiPropertyOptional({ example: 100, description: 'Điểm uy tín Người dạy (0-100)' })
+  mentorTrustScore?: number;
+
+  @ApiPropertyOptional({ example: 100, description: 'Điểm uy tín Học viên (0-100)' })
+  learnerTrustScore?: number;
 
   @ApiProperty({
     example: 'GOOD',
@@ -73,6 +94,18 @@ export class GetPublicProfileResponseDto {
     enum: ['EXCELLENT', 'GOOD', 'AVERAGE', 'WARNING', 'LOCKED'],
   })
   trustTier: string;
+
+  @ApiPropertyOptional({ example: 'GOOD' })
+  mentorTrustTier?: string;
+
+  @ApiPropertyOptional({ example: 'GOOD' })
+  learnerTrustTier?: string;
+
+  @ApiPropertyOptional({ example: 0 })
+  totalTeachingMinutes?: number;
+
+  @ApiPropertyOptional({ example: 0 })
+  totalLearningMinutes?: number;
 
   @ApiPropertyOptional({ example: 12, description: 'Số người theo dõi' })
   followersCount?: number;
