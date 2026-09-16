@@ -75,6 +75,9 @@ export class ModerationService implements OnModuleInit {
           ALTER TABLE IF EXISTS "report_evidence" ALTER COLUMN "uploaded_at" TYPE timestamptz USING "uploaded_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "moderation_decision" ALTER COLUMN "decided_at" TYPE timestamptz USING "decided_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "post_session_rating" ALTER COLUMN "submitted_at" TYPE timestamptz USING "submitted_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "post_session_rating" ADD COLUMN IF NOT EXISTS "room_id" VARCHAR;
+          ALTER TABLE IF EXISTS "post_session_rating" ADD COLUMN IF NOT EXISTS "session_type" VARCHAR DEFAULT 'ONE_ON_ONE';
+          ALTER TABLE IF EXISTS "post_session_rating" ALTER COLUMN "booking_id" DROP NOT NULL;
           ALTER TABLE IF EXISTS "trust_score_change" ALTER COLUMN "occurred_at" TYPE timestamptz USING "occurred_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "account_moderation_action" ALTER COLUMN "occurred_at" TYPE timestamptz USING "occurred_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "trust_score" ALTER COLUMN "last_updated_at" TYPE timestamptz USING "last_updated_at" AT TIME ZONE 'UTC';
@@ -165,10 +168,14 @@ export class ModerationService implements OnModuleInit {
       reviewerAvatar = snapshot.avatar || reviewerAvatar;
     }
 
-    // Check if rating for this booking already exists
-    const existing = await this.ratingRepo.findOne({
-      where: { bookingId: dto.bookingId, learnerId: reviewerId },
-    });
+    // Check if rating for this booking/room already exists
+    const existing = dto.roomId
+      ? await this.ratingRepo.findOne({
+          where: { roomId: dto.roomId, learnerId: reviewerId },
+        })
+      : await this.ratingRepo.findOne({
+          where: { bookingId: dto.bookingId, learnerId: reviewerId },
+        });
 
     let savedRating: PostSessionRating;
 
@@ -197,7 +204,9 @@ export class ModerationService implements OnModuleInit {
       // Tạo đánh giá mới
       const rating = this.ratingRepo.create({
         bookingId: dto.bookingId,
-        sessionId: dto.sessionId || dto.bookingId,
+        roomId: dto.roomId,
+        sessionType: dto.sessionType || (dto.roomId ? 'GROUP' : 'ONE_ON_ONE'),
+        sessionId: dto.sessionId || dto.bookingId || dto.roomId,
         learnerId: reviewerId,
         mentorId: targetUserId,
         stars,

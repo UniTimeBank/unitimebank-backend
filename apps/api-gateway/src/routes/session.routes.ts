@@ -252,6 +252,25 @@ export class SessionRoutes {
     });
   }
 
+  @Post(':roomId/block/:participantId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mentor cấm người tham gia vĩnh viễn khỏi phòng' })
+  async blockParticipant(
+    @Param('roomId') roomId: string,
+    @Param('participantId') participantId: string,
+    @Body() dto: KickParticipantDto,
+    @Req() req: any,
+  ) {
+    const hostId = req.user.id;
+    return this.sessionClient.send('session.blockParticipant', {
+      hostId,
+      roomId,
+      participantId,
+      reason: dto.reason,
+    });
+  }
+
   // ════════════════════════════════════════════════════════════════
   // 4. IN-ROOM CHAT
   // ════════════════════════════════════════════════════════════════

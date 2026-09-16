@@ -640,6 +640,13 @@ export class SessionService implements OnModuleInit {
       });
       await this.participantRepo.save(participant);
     } else {
+      if (participant.isBlocked) {
+        throw new ForbiddenException(
+          participant.blockedReason
+            ? `Bạn đã bị chủ phòng chặn vĩnh viễn khỏi phòng học này: ${participant.blockedReason}`
+            : 'Bạn đã bị chủ phòng chặn vĩnh viễn khỏi phòng học này do vi phạm quy chế.',
+        );
+      }
       if (participant.isKicked) {
         throw new ForbiddenException('Bạn đã bị mời ra khỏi phòng học này.');
       }
@@ -1044,7 +1051,10 @@ export class SessionService implements OnModuleInit {
     }
 
     const participant = await this.participantRepo.findOne({
-      where: { id: participantId, roomId },
+      where: [
+        { id: participantId, roomId },
+        { userId: participantId, roomId },
+      ],
     });
     if (!participant) throw new NotFoundException('Không tìm thấy người tham gia.');
 
@@ -1083,7 +1093,10 @@ export class SessionService implements OnModuleInit {
     }
 
     const participant = await this.participantRepo.findOne({
-      where: { id: participantId, roomId },
+      where: [
+        { id: participantId, roomId },
+        { userId: participantId, roomId },
+      ],
     });
     if (!participant) throw new NotFoundException('Không tìm thấy người tham gia.');
 
@@ -1102,6 +1115,15 @@ export class SessionService implements OnModuleInit {
     participant.connectionStatus = ConnectionStatus.KICKED;
     await this.participantRepo.save(participant);
 
+    // Ngắt kết nối LiveKit WebRTC của người bị kick ngay lập tức
+    if (room.livekitRoomName) {
+      try {
+        await this.livekitService.removeParticipant(room.livekitRoomName, participant.userId);
+      } catch (e: any) {
+        this.logger.warn(`Không thể ngắt LiveKit của participant ${participant.userId}: ${e?.message}`);
+      }
+    }
+
     const action = this.hostActionRepo.create({
       roomId,
       actorId: hostId,
@@ -1118,6 +1140,77 @@ export class SessionService implements OnModuleInit {
       userId: participant.userId,
       isKicked: true,
       creditsCharged: participant.creditCharged || 0,
+    };
+  }
+
+  /**
+   * POST /rooms/:roomId/block/:participantId — Host cấm người tham gia vĩnh viễn khỏi phòng
+   */
+  async blockParticipant(
+    hostId: string,
+    roomId: string,
+    participantId: string,
+    reason?: string,
+  ) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room) throw new NotFoundException('Không tìm thấy phòng học.');
+    if (room.mentorId !== hostId) {
+      throw new ForbiddenException('Chỉ Mentor mới có quyền chặn người học khỏi phòng.');
+    }
+
+    const participant = await this.participantRepo.findOne({
+      where: [
+        { id: participantId, roomId },
+        { userId: participantId, roomId },
+      ],
+    });
+    if (!participant) throw new NotFoundException('Không tìm thấy người tham gia.');
+
+    if (
+      room.roomType === RoomType.GROUP &&
+      participant.role === ParticipantRole.LEARNER &&
+      participant.connectionStatus === ConnectionStatus.ONLINE
+    ) {
+      await this.settleGroupParticipantBillingOnExit(room, participant, new Date());
+    } else {
+      participant.leftAt = new Date();
+      participant.lastHeartbeatAt = null;
+    }
+
+    participant.isKicked = true;
+    participant.isBlocked = true;
+    participant.blockedReason = reason || 'Vi phạm quy định phòng học';
+    participant.connectionStatus = ConnectionStatus.KICKED;
+    await this.participantRepo.save(participant);
+
+    // Ngắt kết nối LiveKit WebRTC của người bị block ngay lập tức
+    if (room.livekitRoomName) {
+      try {
+        await this.livekitService.removeParticipant(room.livekitRoomName, participant.userId);
+      } catch (e: any) {
+        this.logger.warn(`Không thể ngắt LiveKit của participant ${participant.userId}: ${e?.message}`);
+      }
+    }
+
+    const action = this.hostActionRepo.create({
+      roomId,
+      actorId: hostId,
+      targetUserId: participant.userId,
+      actionType: LocalHostActionType.BLOCK,
+      reason: reason || 'Vi phạm quy chế phòng học (Bị chặn)',
+    });
+    await this.hostActionRepo.save(action);
+
+    await this.recordConnectionEvent(roomId, participant.id, EventType.DISCONNECTED);
+
+    return {
+      participantId: participant.id,
+      userId: participant.userId,
+      isKicked: true,
+      isBlocked: true,
+      reason: participant.blockedReason,
+      creditsCharged: participant.creditCharged || 0,
+      activeSeconds: participant.activeSeconds || 0,
     };
   }
 

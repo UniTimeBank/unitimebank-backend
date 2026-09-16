@@ -55,6 +55,7 @@ export enum HostActionType {
   MUTE = 'MUTE',
   UNMUTE = 'UNMUTE',
   KICK = 'KICK',
+  BLOCK = 'BLOCK',
   TRANSFER_HOST = 'TRANSFER_HOST',
 }
 
