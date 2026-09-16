@@ -992,7 +992,10 @@ export class SessionService implements OnModuleInit {
       .leftJoinAndSelect('room.participants', 'participant')
       .where('room.roomType = :type', { type: RoomType.GROUP })
       .andWhere('room.status = :status', { status: RoomStatus.COMPLETED })
-      .andWhere('(room.mentorId = :userId OR participant.userId = :userId)', { userId })
+      .andWhere(
+        '(room.mentorId = :userId OR EXISTS (SELECT 1 FROM room_participant rp WHERE rp.room_id = room.id AND rp.user_id = :userId))',
+        { userId },
+      )
       .orderBy('room.closedAt', 'DESC');
 
     const limit = query?.limit || 20;
@@ -1002,24 +1005,48 @@ export class SessionService implements OnModuleInit {
     const [items, total] = await qb.getManyAndCount();
 
     const enriched = items.map((r) => {
-      const totalParticipants = (r.participants || []).length;
-      const durationMinutes = r.openedAt && r.closedAt
-        ? Math.max(1, Math.round((new Date(r.closedAt).getTime() - new Date(r.openedAt).getTime()) / (60 * 1000)))
-        : 0;
+      const participants = r.participants || [];
+      const uniqueUserIds = new Set(participants.map((p) => p.userId));
+      const totalParticipants = uniqueUserIds.size || 1;
+
+      const durationMinutes =
+        r.openedAt && r.closedAt
+          ? Math.max(1, Math.round((new Date(r.closedAt).getTime() - new Date(r.openedAt).getTime()) / (60 * 1000)))
+          : 0;
+
+      const isHost = r.mentorId === userId;
+      const myParticipant = participants.find((p) => p.userId === userId);
+
+      const myActiveSeconds = myParticipant?.activeSeconds || 0;
+      const myDurationMinutes =
+        myActiveSeconds > 0
+          ? Math.max(1, Math.round(myActiveSeconds / 60))
+          : durationMinutes;
+      const myCreditCharged = myParticipant?.creditCharged || 0;
+
+      const totalCreditsEarned = participants
+        .filter((p) => p.role === ParticipantRole.LEARNER)
+        .reduce((sum, p) => sum + (p.creditCharged || 0), 0);
 
       return {
         roomId: r.id,
         mentorId: r.mentorId,
         title: r.title || 'Phòng học nhóm trực tuyến',
         category: r.category,
+        coverImage: r.coverImage,
+        skills: r.skills || [],
         maxParticipants: r.maxParticipants || 20,
         postId: r.postId,
         totalParticipants,
         openedAt: r.openedAt,
         closedAt: r.closedAt,
         durationMinutes,
+        myDurationMinutes,
+        myActiveSeconds,
+        myCreditCharged,
+        totalCreditsEarned,
         status: r.status,
-        isHost: r.mentorId === userId,
+        isHost,
       };
     });
 
