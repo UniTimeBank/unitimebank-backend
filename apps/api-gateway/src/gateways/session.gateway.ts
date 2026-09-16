@@ -123,7 +123,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     });
 
     if (data.role === 'MENTOR') {
-      nsp.to(`room_${roomId}`).emit('host-presence-changed', {
+      client.to(`room_${roomId}`).emit('host-presence-changed', {
         roomId,
         isHostPresent: true,
         timestamp: new Date().toISOString(),
