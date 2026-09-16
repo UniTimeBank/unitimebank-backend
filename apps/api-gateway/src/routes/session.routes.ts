@@ -28,6 +28,7 @@ import {
 } from '@app/contracts/session';
 
 import { UserClient } from '../clients/user.client';
+import { ModerationClient } from '../clients/moderation.client';
 
 @ApiTags('Session - Phòng học trực tuyến & Thời gian thực')
 @Controller('rooms')
@@ -35,6 +36,7 @@ export class SessionRoutes {
   constructor(
     private readonly sessionClient: SessionClient,
     private readonly userClient: UserClient,
+    private readonly moderationClient: ModerationClient,
   ) {}
 
   // ════════════════════════════════════════════════════════════════
@@ -210,10 +212,27 @@ export class SessionRoutes {
     const res: any = await this.sessionClient.send('session.getGroupRoomsHistory', { userId, query });
     if (!res || !Array.isArray(res.rooms)) return res;
 
+    // Lấy danh sách các buổi học nhóm mà người dùng này đã đánh giá
+    const ratedRoomMap = new Map<string, any>();
+    try {
+      const ratedList: any = await this.moderationClient.send('moderation.getMyRatedSessionIds', { learnerId: userId });
+      if (Array.isArray(ratedList)) {
+        ratedList.forEach((r: any) => {
+          if (r.roomId) ratedRoomMap.set(String(r.roomId), r);
+        });
+      }
+    } catch {}
+
     // Lấy thông tin hồ sơ và kỹ năng thực tế từ database của từng Mentor
     const enrichedRooms = await Promise.all(
       res.rooms.map(async (room: any) => {
-        if (!room.mentorId) return room;
+        const myRating = ratedRoomMap.get(String(room.roomId));
+        const ratingFields = {
+          isRated: Boolean(myRating),
+          myRatingStars: myRating?.stars,
+        };
+
+        if (!room.mentorId) return { ...room, ...ratingFields };
         try {
           const [profileRes, skillsRes] = await Promise.allSettled([
             this.userClient.getPublicProfile(room.mentorId),
@@ -261,9 +280,10 @@ export class SessionRoutes {
                 ? userProfile.trustScore
                 : (room.mentorTrustScore || 100),
             skills: finalSkills,
+            ...ratingFields,
           };
         } catch {
-          return room;
+          return { ...room, ...ratingFields };
         }
       }),
     );

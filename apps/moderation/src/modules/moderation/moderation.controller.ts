@@ -28,6 +28,11 @@ export class ModerationController {
     return this.moderationService.getRatingByBooking(data.bookingId);
   }
 
+  @MessagePattern('moderation.getMyRatedSessionIds')
+  async getMyRatedSessionIds(@Payload() data: { learnerId: string }) {
+    return this.moderationService.getMyRatedSessionIds(data.learnerId);
+  }
+
   // ==================== TRUST SCORE ====================
 
   @MessagePattern('moderation.getTrustScore')
