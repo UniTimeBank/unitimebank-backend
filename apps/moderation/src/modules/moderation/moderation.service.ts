@@ -80,11 +80,22 @@ export class ModerationService implements OnModuleInit {
           ALTER TABLE IF EXISTS "trust_score" ALTER COLUMN "last_updated_at" TYPE timestamptz USING "last_updated_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "trust_score" ALTER COLUMN "created_at" TYPE timestamptz USING "created_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "system_stats" ALTER COLUMN "generated_at" TYPE timestamptz USING "generated_at" AT TIME ZONE 'UTC';
+
+          -- Relax legacy NOT NULL constraints on evidence and report tables
+          ALTER TABLE IF EXISTS "report_evidence" ALTER COLUMN "recording_id" DROP NOT NULL;
+          ALTER TABLE IF EXISTS "report_evidence" ALTER COLUMN "cloudinary_public_id" DROP NOT NULL;
+          ALTER TABLE IF EXISTS "report_evidence" ALTER COLUMN "file_url" DROP NOT NULL;
+          ALTER TABLE IF EXISTS "report_evidence" ALTER COLUMN "size_bytes" SET DEFAULT 0;
+          ALTER TABLE IF EXISTS "report_evidence" ALTER COLUMN "size_bytes" DROP NOT NULL;
+          ALTER TABLE IF EXISTS "violation_report" ALTER COLUMN "description" DROP NOT NULL;
+          ALTER TABLE IF EXISTS "violation_report" ALTER COLUMN "target_user_id" DROP NOT NULL;
+          ALTER TABLE IF EXISTS "violation_report" ALTER COLUMN "target_id" DROP NOT NULL;
+          ALTER TABLE IF EXISTS "violation_report" ALTER COLUMN "closed_at" DROP NOT NULL;
         EXCEPTION
           WHEN others THEN null;
         END $$;
       `);
-      this.logger.log('Moderation dual trust score and timestamptz columns verified successfully');
+      this.logger.log('Moderation schema & constraints verified successfully');
     } catch (err: any) {
       this.logger.debug('Schema verification result in ModerationService:', err.message);
     }
@@ -94,7 +105,7 @@ export class ModerationService implements OnModuleInit {
 
   private async getUserSnapshot(userId: string): Promise<{ name: string; avatar: string }> {
     try {
-      const userUrl = process.env.USER_SERVICE_URL || 'http://localhost:3002';
+      const userUrl = process.env.USER_SERVICE_URL || 'http://127.0.0.1:3002';
       const res = await fetch(`${userUrl}/users/${userId}`);
       if (res.ok) {
         const data = await res.json();
@@ -480,11 +491,14 @@ export class ModerationService implements OnModuleInit {
       category = dto.category as ReportCategory;
     }
 
+    const targetUserId = dto.targetUserId?.trim() || dto.targetId?.trim() || reporterId;
+    const targetId = dto.targetId?.trim() || dto.targetUserId?.trim() || reporterId;
+
     const report = this.reportRepo.create({
       reporterId,
-      targetUserId: dto.targetUserId || dto.targetId || reporterId,
+      targetUserId,
       targetType,
-      targetId: dto.targetId || dto.targetUserId || reporterId,
+      targetId,
       category,
       description: dto.description?.trim() || undefined,
       status: ReportStatus.OPEN,
@@ -493,15 +507,22 @@ export class ModerationService implements OnModuleInit {
     const savedReport = await this.reportRepo.save(report);
 
     if (dto.evidenceUrls && dto.evidenceUrls.length > 0) {
-      const evidences = dto.evidenceUrls.map((ev) => {
-        const kind = ev.kind?.toUpperCase() === 'VIDEO' ? EvidenceKind.VIDEO : EvidenceKind.IMAGE;
-        return this.evidenceRepo.create({
-          reportId: savedReport.id,
-          fileUrl: ev.url,
-          kind,
+      try {
+        const evidences = dto.evidenceUrls.map((ev) => {
+          const kind = ev.kind?.toUpperCase() === 'VIDEO' ? EvidenceKind.VIDEO : EvidenceKind.IMAGE;
+          return this.evidenceRepo.create({
+            reportId: savedReport.id,
+            fileUrl: ev.url,
+            kind,
+            cloudinaryPublicId: (ev as any).publicId || '',
+            recordingId: (ev as any).recordingId || undefined,
+            sizeBytes: (ev as any).sizeBytes || (ev as any).bytes || 0,
+          });
         });
-      });
-      await this.evidenceRepo.save(evidences);
+        await this.evidenceRepo.save(evidences);
+      } catch (evidenceErr) {
+        this.logger.warn(`Could not save evidences for report ${savedReport.id}:`, evidenceErr);
+      }
     }
 
     this.rmqClient.emit(MODERATION_EVENTS.REPORT_CREATED, {
@@ -783,7 +804,7 @@ export class ModerationService implements OnModuleInit {
     // 2. Lấy danh sách profiles từ User Service
     let profiles: any[] = [];
     try {
-      const userUrl = process.env.USER_SERVICE_URL || 'http://localhost:3002';
+      const userUrl = process.env.USER_SERVICE_URL || 'http://127.0.0.1:3002';
       const res = await fetch(`${userUrl}/users?limit=100`);
       if (res.ok) {
         const data = await res.json();
@@ -841,7 +862,7 @@ export class ModerationService implements OnModuleInit {
   async getLearnerLeaderboard(timeframe = 'all', limit = 20) {
     let profiles: any[] = [];
     try {
-      const userUrl = process.env.USER_SERVICE_URL || 'http://localhost:3002';
+      const userUrl = process.env.USER_SERVICE_URL || 'http://127.0.0.1:3002';
       const res = await fetch(`${userUrl}/users?limit=100`);
       if (res.ok) {
         const data = await res.json();

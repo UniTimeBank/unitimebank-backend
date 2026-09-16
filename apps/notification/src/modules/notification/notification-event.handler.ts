@@ -4,6 +4,7 @@ import {
   POST_EVENTS,
   USER_EVENTS,
   NOTIFICATION_EVENTS,
+  MODERATION_EVENTS,
 } from '@app/contracts/events';
 import type {
   CreateNotificationEvent,
@@ -85,5 +86,25 @@ export class NotificationEventHandler {
     } catch (err) {
       this.logger.error(`Failed to handle ${USER_EVENTS.USER_REGISTERED}:`, err);
     }
+  }
+
+  /**
+   * Lắng nghe event khi có báo cáo vi phạm mới
+   */
+  @EventPattern(MODERATION_EVENTS.REPORT_CREATED)
+  async handleReportCreated(@Payload() data: any) {
+    this.logger.log(
+      `[EVENT] Received ${MODERATION_EVENTS.REPORT_CREATED} for report ID: ${data?.reportId}`
+    );
+  }
+
+  /**
+   * Lắng nghe event khi báo cáo vi phạm được giải quyết
+   */
+  @EventPattern(MODERATION_EVENTS.REPORT_RESOLVED)
+  async handleReportResolved(@Payload() data: any) {
+    this.logger.log(
+      `[EVENT] Received ${MODERATION_EVENTS.REPORT_RESOLVED} for report ID: ${data?.reportId}`
+    );
   }
 }

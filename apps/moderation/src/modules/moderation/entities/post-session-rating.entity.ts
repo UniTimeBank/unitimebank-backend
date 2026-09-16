@@ -5,8 +5,8 @@ export class PostSessionRating {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'booking_id' })
-  bookingId: string;
+  @Column({ name: 'booking_id', nullable: true })
+  bookingId?: string;
 
   @Column({ name: 'session_id', nullable: true })
   sessionId: string;

@@ -12,23 +12,38 @@ export class EvidenceItemDto {
   @IsString()
   kind: string;
 
+  @ApiPropertyOptional({ description: 'Public ID trên Cloudinary' })
+  @IsOptional()
+  @IsString()
+  publicId?: string;
+
+  @ApiPropertyOptional({ description: 'Dung lượng file (bytes)' })
+  @IsOptional()
+  @IsNumber()
+  sizeBytes?: number;
+
+  @ApiPropertyOptional({ description: 'ID bản ghi màn hình (nếu có)' })
+  @IsOptional()
+  @IsString()
+  recordingId?: string;
+
   @ApiPropertyOptional({ description: 'Metadata bổ sung' })
   @IsOptional()
   metadata?: Record<string, any>;
 }
 
 export class CreateViolationReportDto {
-  @ApiProperty({ description: 'ID của người dùng bị báo cáo' })
-  @IsNotEmpty()
+  @ApiPropertyOptional({ description: 'ID của người dùng bị báo cáo' })
+  @IsOptional()
   @IsString()
-  targetUserId: string;
+  targetUserId?: string;
 
-  @ApiPropertyOptional({ description: 'Loại đối tượng bị báo cáo (USER, BOOKING, POST)', default: 'USER' })
+  @ApiPropertyOptional({ description: 'Loại đối tượng bị báo cáo (USER, BOOKING, POST, SESSION)', default: 'USER' })
   @IsOptional()
   @IsString()
   targetType?: string;
 
-  @ApiPropertyOptional({ description: 'ID của đối tượng bị báo cáo (bookingId, postId, v.v.)' })
+  @ApiPropertyOptional({ description: 'ID của đối tượng bị báo cáo (bookingId, postId, roomId, v.v.)' })
   @IsOptional()
   @IsString()
   targetId?: string;
