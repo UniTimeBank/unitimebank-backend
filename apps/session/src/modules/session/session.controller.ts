@@ -239,6 +239,26 @@ export class SessionController {
     }
   }
 
+  @MessagePattern('session.blockParticipant')
+  async blockParticipant(
+    @Payload() data: { hostId: string; roomId: string; participantId: string; reason?: string },
+  ) {
+    try {
+      return await this.sessionService.blockParticipant(
+        data.hostId,
+        data.roomId,
+        data.participantId,
+        data.reason,
+      );
+    } catch (err: any) {
+      this.logger.error(`[session.blockParticipant] Error:`, err?.stack || err);
+      throw new RpcException({
+        status: err?.status || err?.statusCode || 400,
+        message: err?.message || 'Lỗi chặn thành viên tham gia phòng',
+      });
+    }
+  }
+
   @MessagePattern('session.getChatMessages')
   async getChatMessages(@Payload() data: { userId: string; roomId: string }) {
     try {

@@ -123,7 +123,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     });
 
     if (data.role === 'MENTOR') {
-      nsp.to(`room_${roomId}`).emit('host-presence-changed', {
+      client.to(`room_${roomId}`).emit('host-presence-changed', {
         roomId,
         isHostPresent: true,
         timestamp: new Date().toISOString(),
@@ -370,6 +370,33 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
       const nsp = client.nsp || this.server;
       nsp.to(`room_${data.roomId}`).to(data.roomId).emit('participant-kicked', res);
+      return res;
+    } catch (err: any) {
+      return { error: err?.message };
+    }
+  }
+
+  /**
+   * Host chặn người tham gia vĩnh viễn khỏi phòng
+   */
+  @SubscribeMessage('block-participant')
+  async handleBlockParticipant(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { roomId: string; participantId: string; reason?: string },
+  ) {
+    const hostId = client.data.userId;
+    if (!data.roomId || !data.participantId) return;
+
+    try {
+      const res = await this.sessionClient.send('session.blockParticipant', {
+        hostId,
+        roomId: data.roomId,
+        participantId: data.participantId,
+        reason: data.reason,
+      });
+
+      const nsp = client.nsp || this.server;
+      nsp.to(`room_${data.roomId}`).to(data.roomId).emit('participant-blocked', res);
       return res;
     } catch (err: any) {
       return { error: err?.message };

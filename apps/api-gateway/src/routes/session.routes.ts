@@ -28,6 +28,7 @@ import {
 } from '@app/contracts/session';
 
 import { UserClient } from '../clients/user.client';
+import { ModerationClient } from '../clients/moderation.client';
 
 @ApiTags('Session - Phòng học trực tuyến & Thời gian thực')
 @Controller('rooms')
@@ -35,6 +36,7 @@ export class SessionRoutes {
   constructor(
     private readonly sessionClient: SessionClient,
     private readonly userClient: UserClient,
+    private readonly moderationClient: ModerationClient,
   ) {}
 
   // ════════════════════════════════════════════════════════════════
@@ -207,7 +209,89 @@ export class SessionRoutes {
   @ApiQuery({ name: 'page', required: false, type: Number })
   async getGroupRoomsHistory(@Query() query: any, @Req() req: any) {
     const userId = req.user.id;
-    return this.sessionClient.send('session.getGroupRoomsHistory', { userId, query });
+    const res: any = await this.sessionClient.send('session.getGroupRoomsHistory', { userId, query });
+    if (!res || !Array.isArray(res.rooms)) return res;
+
+    // Lấy danh sách các buổi học nhóm mà người dùng này đã đánh giá
+    const ratedRoomMap = new Map<string, any>();
+    try {
+      const ratedList: any = await this.moderationClient.send('moderation.getMyRatedSessionIds', { learnerId: userId });
+      if (Array.isArray(ratedList)) {
+        ratedList.forEach((r: any) => {
+          if (r.roomId) ratedRoomMap.set(String(r.roomId), r);
+        });
+      }
+    } catch {}
+
+    // Lấy thông tin hồ sơ và kỹ năng thực tế từ database của từng Mentor
+    const enrichedRooms = await Promise.all(
+      res.rooms.map(async (room: any) => {
+        const myRating = ratedRoomMap.get(String(room.roomId));
+        const ratingFields = {
+          isRated: Boolean(myRating),
+          myRatingStars: myRating?.stars,
+        };
+
+        if (!room.mentorId) return { ...room, ...ratingFields };
+        try {
+          const [profileRes, skillsRes] = await Promise.allSettled([
+            this.userClient.getPublicProfile(room.mentorId),
+            this.userClient.getSkillsByUserId(room.mentorId),
+          ]);
+
+          const userProfile = profileRes.status === 'fulfilled' ? profileRes.value : null;
+          const userSkills: string[] =
+            skillsRes.status === 'fulfilled' && Array.isArray(skillsRes.value?.skills)
+              ? skillsRes.value.skills.map((s: any) => s.skillName).filter(Boolean)
+              : [];
+
+          const finalSkills =
+            Array.isArray(room.skills) && room.skills.length > 0
+              ? room.skills
+              : userSkills;
+
+          const CATEGORY_NAMES: Record<string, string> = {
+            PROGRAMMING: 'Lập trình',
+            LANGUAGE: 'Ngoại ngữ',
+            DESIGN: 'Thiết kế',
+            ACADEMIC: 'Học thuật',
+            BUSINESS: 'Kinh doanh',
+            SOFT_SKILLS: 'Kỹ năng mềm',
+            MUSIC: 'Âm nhạc',
+            SPORTS: 'Thể thao',
+            OTHER: 'Khác',
+          };
+          const catName =
+            (room.category && CATEGORY_NAMES[room.category.toUpperCase()]) || room.category;
+
+          return {
+            ...room,
+            mentorName:
+              userProfile?.displayName ||
+              userProfile?.fullName ||
+              userProfile?.name ||
+              room.mentorName,
+            mentorAvatar: userProfile?.avatarUrl || room.mentorAvatar,
+            mentorTitle:
+              userProfile?.headline ||
+              (catName ? `Chuyên môn: ${catName}` : 'Người hướng dẫn phòng'),
+            mentorTrustScore:
+              typeof userProfile?.trustScore === 'number'
+                ? userProfile.trustScore
+                : (room.mentorTrustScore || 100),
+            skills: finalSkills,
+            ...ratingFields,
+          };
+        } catch {
+          return { ...room, ...ratingFields };
+        }
+      }),
+    );
+
+    return {
+      ...res,
+      rooms: enrichedRooms,
+    };
   }
 
   // ════════════════════════════════════════════════════════════════
@@ -245,6 +329,25 @@ export class SessionRoutes {
   ) {
     const hostId = req.user.id;
     return this.sessionClient.send('session.kickParticipant', {
+      hostId,
+      roomId,
+      participantId,
+      reason: dto.reason,
+    });
+  }
+
+  @Post(':roomId/block/:participantId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mentor cấm người tham gia vĩnh viễn khỏi phòng' })
+  async blockParticipant(
+    @Param('roomId') roomId: string,
+    @Param('participantId') participantId: string,
+    @Body() dto: KickParticipantDto,
+    @Req() req: any,
+  ) {
+    const hostId = req.user.id;
+    return this.sessionClient.send('session.blockParticipant', {
       hostId,
       roomId,
       participantId,

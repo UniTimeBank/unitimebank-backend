@@ -2,10 +2,20 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString, IsNumber, Min, Max } from 'class-validator';
 
 export class CreateRatingDto {
-  @ApiProperty({ description: 'ID của booking cần đánh giá' })
-  @IsNotEmpty()
+  @ApiPropertyOptional({ description: 'ID của booking cần đánh giá (cho buổi học 1:1)' })
+  @IsOptional()
   @IsString()
-  bookingId: string;
+  bookingId?: string;
+
+  @ApiPropertyOptional({ description: 'ID của phòng học nhóm (cho buổi học Group)' })
+  @IsOptional()
+  @IsString()
+  roomId?: string;
+
+  @ApiPropertyOptional({ description: 'Loại buổi học: ONE_ON_ONE hoặc GROUP', default: 'ONE_ON_ONE' })
+  @IsOptional()
+  @IsString()
+  sessionType?: string;
 
   @ApiPropertyOptional({ description: 'ID của session (nếu có)' })
   @IsOptional()

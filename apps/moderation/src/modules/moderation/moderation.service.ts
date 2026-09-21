@@ -75,6 +75,9 @@ export class ModerationService implements OnModuleInit {
           ALTER TABLE IF EXISTS "report_evidence" ALTER COLUMN "uploaded_at" TYPE timestamptz USING "uploaded_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "moderation_decision" ALTER COLUMN "decided_at" TYPE timestamptz USING "decided_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "post_session_rating" ALTER COLUMN "submitted_at" TYPE timestamptz USING "submitted_at" AT TIME ZONE 'UTC';
+          ALTER TABLE IF EXISTS "post_session_rating" ADD COLUMN IF NOT EXISTS "room_id" VARCHAR;
+          ALTER TABLE IF EXISTS "post_session_rating" ADD COLUMN IF NOT EXISTS "session_type" VARCHAR DEFAULT 'ONE_ON_ONE';
+          ALTER TABLE IF EXISTS "post_session_rating" ALTER COLUMN "booking_id" DROP NOT NULL;
           ALTER TABLE IF EXISTS "trust_score_change" ALTER COLUMN "occurred_at" TYPE timestamptz USING "occurred_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "account_moderation_action" ALTER COLUMN "occurred_at" TYPE timestamptz USING "occurred_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "trust_score" ALTER COLUMN "last_updated_at" TYPE timestamptz USING "last_updated_at" AT TIME ZONE 'UTC';
@@ -176,39 +179,28 @@ export class ModerationService implements OnModuleInit {
       reviewerAvatar = snapshot.avatar || reviewerAvatar;
     }
 
-    // Check if rating for this booking already exists
-    const existing = await this.ratingRepo.findOne({
-      where: { bookingId: dto.bookingId, learnerId: reviewerId },
-    });
-
-    let savedRating: PostSessionRating;
+    // Check if rating for this booking/room already exists
+    const existing = dto.roomId
+      ? await this.ratingRepo.findOne({
+          where: { roomId: dto.roomId, learnerId: reviewerId },
+        })
+      : await this.ratingRepo.findOne({
+          where: { bookingId: dto.bookingId, learnerId: reviewerId },
+        });
 
     if (existing) {
-      // Upsert: Cập nhật đánh giá cũ
-      existing.stars = stars;
-      existing.comment = dto.comment?.trim() || undefined;
-      existing.reviewerName = reviewerName || existing.reviewerName;
-      existing.reviewerAvatar = reviewerAvatar || existing.reviewerAvatar;
-      existing.submittedAt = new Date();
-      savedRating = await this.ratingRepo.save(existing);
+      throw new RpcException({
+        status: 400,
+        message: 'Bạn đã đánh giá buổi học này rồi. Mỗi người chỉ được đánh giá 1 lần.',
+      });
+    }
 
-      // Điểm uy tín tối đa là 100, chỉ bị trừ khi nhận đánh giá tiêu cực (1-2 sao)
-      if (stars <= 2 && targetUserId) {
-        const penalty = stars === 1 ? -2 : -1;
-        await this.changeTrustScore(
-          targetUserId,
-          penalty,
-          TrustChangeReason.RATING_1_STAR,
-          savedRating.id,
-          'POST_SESSION_RATING',
-          'MENTOR',
-        );
-      }
-    } else {
-      // Tạo đánh giá mới
+    // Tạo đánh giá mới (mỗi học viên chỉ được đánh giá 1 lần duy nhất)
       const rating = this.ratingRepo.create({
         bookingId: dto.bookingId,
-        sessionId: dto.sessionId || dto.bookingId,
+        roomId: dto.roomId,
+        sessionType: dto.sessionType || (dto.roomId ? 'GROUP' : 'ONE_ON_ONE'),
+        sessionId: dto.sessionId || dto.bookingId || dto.roomId,
         learnerId: reviewerId,
         mentorId: targetUserId,
         stars,
@@ -217,7 +209,7 @@ export class ModerationService implements OnModuleInit {
         reviewerAvatar,
       });
 
-      savedRating = await this.ratingRepo.save(rating);
+    const savedRating = await this.ratingRepo.save(rating);
 
       // Chỉ trừ điểm uy tín khi nhận đánh giá xấu
       if (stars <= 2 && targetUserId) {
@@ -231,7 +223,6 @@ export class ModerationService implements OnModuleInit {
           'MENTOR',
         );
       }
-    }
 
     // Emit event
     this.rmqClient.emit(MODERATION_EVENTS.RATING_SUBMITTED, {
@@ -326,6 +317,22 @@ export class ModerationService implements OnModuleInit {
   async getRatingByBooking(bookingId: string) {
     return this.ratingRepo.findOne({
       where: { bookingId },
+    });
+  }
+
+  async getMyRatedSessionIds(learnerId: string) {
+    return this.ratingRepo.find({
+      where: { learnerId },
+      select: {
+        id: true,
+        bookingId: true,
+        roomId: true,
+        sessionType: true,
+        stars: true,
+        comment: true,
+        submittedAt: true,
+      },
+      order: { submittedAt: 'DESC' },
     });
   }
 

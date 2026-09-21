@@ -9,7 +9,7 @@ export class PostSessionRating {
   bookingId?: string;
 
   @Column({ name: 'session_id', nullable: true })
-  sessionId: string;
+  sessionId?: string;
 
   @Column({ name: 'learner_id' })
   learnerId: string;

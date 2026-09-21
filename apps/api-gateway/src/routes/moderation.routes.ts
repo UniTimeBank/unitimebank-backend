@@ -74,6 +74,17 @@ export class ModerationRoutes {
     });
   }
 
+  @Get('ratings/my-rated-sessions')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy danh sách các buổi học mà tôi đã gửi đánh giá' })
+  async getMyRatedSessions(@Req() req: any) {
+    const learnerId = req.user.id;
+    return this.moderationClient.send('moderation.getMyRatedSessionIds', {
+      learnerId,
+    });
+  }
+
   // ════════════════════════════════════════════════════════════════
   // 2. ĐIỂM UY TÍN (TRUST SCORE)
   // ════════════════════════════════════════════════════════════════

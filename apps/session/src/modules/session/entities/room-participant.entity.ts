@@ -46,6 +46,12 @@ export class RoomParticipant {
   @Column({ name: 'is_kicked', default: false })
   isKicked: boolean;
 
+  @Column({ name: 'is_blocked', default: false })
+  isBlocked: boolean;
+
+  @Column({ name: 'blocked_reason', nullable: true })
+  blockedReason?: string;
+
   @Column({ type: 'enum', enum: ConnectionStatus, default: ConnectionStatus.ONLINE })
   connectionStatus: ConnectionStatus;
 
