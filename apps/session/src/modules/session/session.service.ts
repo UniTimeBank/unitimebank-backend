@@ -100,6 +100,64 @@ export class SessionService implements OnModuleInit {
     }
   }
 
+  private readonly USER_SERVICE_URL =
+    process.env.USER_SERVICE_URL || 'http://localhost:3002';
+
+  /**
+   * Lấy thông tin hiển thị (tên + avatar) của người dùng từ User Service
+   */
+  private async getUserProfileInfo(
+    userId: string,
+  ): Promise<{ displayName: string; avatarUrl?: string }> {
+    if (!userId) return { displayName: 'Thành viên' };
+    try {
+      const res = await fetch(`${this.USER_SERVICE_URL}/users/${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.displayName) {
+          return {
+            displayName: data.displayName,
+            avatarUrl: data.avatarUrl || undefined,
+          };
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to fetch user profile for ${userId} from user-service:`, err);
+    }
+    return { displayName: 'Thành viên' };
+  }
+
+  /**
+   * Lấy thông tin hiển thị hàng loạt cho danh sách userIds từ User Service
+   */
+  private async getUserProfilesMap(
+    userIds: string[],
+  ): Promise<Map<string, { displayName: string; avatarUrl?: string }>> {
+    const map = new Map<string, { displayName: string; avatarUrl?: string }>();
+    if (!userIds || userIds.length === 0) return map;
+
+    const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+    await Promise.all(
+      uniqueIds.map(async (id) => {
+        try {
+          const res = await fetch(`${this.USER_SERVICE_URL}/users/${id}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.displayName) {
+              map.set(id, {
+                displayName: data.displayName,
+                avatarUrl: data.avatarUrl || undefined,
+              });
+            }
+          }
+        } catch (err) {
+          this.logger.warn(`Failed to fetch user profile for ${id} from user-service:`, err);
+        }
+      }),
+    );
+    return map;
+  }
+
   /**
    * Kiểm tra xem Chủ phòng (Mentor) của phòng học nhóm có đang hiện diện (ONLINE) hay không
    */
@@ -280,11 +338,20 @@ export class SessionService implements OnModuleInit {
       this.logger.warn('Failed to emit notification for room open:', err);
     }
 
+    const userProfile = await this.getUserProfileInfo(userId);
+    const hostName = booking.mentorName || userProfile.displayName || 'Mentor';
+    const hostAvatar = booking.mentorAvatar || userProfile.avatarUrl;
+
     // 6. Sinh LiveKit AccessToken
     const { token, wsUrl } = await this.livekitService.generateToken({
       roomName: room.livekitRoomName,
       identity: userId,
-      name: booking.mentorName || 'Mentor',
+      name: hostName,
+      metadata: JSON.stringify({
+        displayName: hostName,
+        avatarUrl: hostAvatar,
+        role: ParticipantRole.MENTOR,
+      }),
       role: ParticipantRole.MENTOR,
     });
 
@@ -407,12 +474,23 @@ export class SessionService implements OnModuleInit {
       await this.participantRepo.save(participant);
     }
 
-    const displayName = isMentor ? (booking.mentorName || 'Mentor') : (booking.learnerName || 'Learner');
+    const userProfile = await this.getUserProfileInfo(userId);
+    const displayName = isMentor
+      ? (booking.mentorName || userProfile.displayName || 'Mentor')
+      : (booking.learnerName || userProfile.displayName || 'Học viên');
+    const avatarUrl = isMentor
+      ? (booking.mentorAvatar || userProfile.avatarUrl)
+      : (booking.learnerAvatar || userProfile.avatarUrl);
 
     const { token, wsUrl } = await this.livekitService.generateToken({
       roomName: room.livekitRoomName,
       identity: userId,
       name: displayName,
+      metadata: JSON.stringify({
+        displayName,
+        avatarUrl,
+        role,
+      }),
       role,
     });
 
@@ -554,10 +632,19 @@ export class SessionService implements OnModuleInit {
     });
     await this.participantRepo.save(mentorParticipant);
 
+    const userProfile = await this.getUserProfileInfo(userId);
+    const hostName = userProfile.displayName || 'Mentor';
+    const hostAvatar = userProfile.avatarUrl;
+
     const { token, wsUrl } = await this.livekitService.generateToken({
       roomName: savedRoom.livekitRoomName,
       identity: userId,
-      name: 'Mentor',
+      name: hostName,
+      metadata: JSON.stringify({
+        displayName: hostName,
+        avatarUrl: hostAvatar,
+        role: ParticipantRole.MENTOR,
+      }),
       role: ParticipantRole.MENTOR,
     });
 
@@ -674,10 +761,19 @@ export class SessionService implements OnModuleInit {
       await this.roomRepo.save(room);
     }
 
+    const userProfile = await this.getUserProfileInfo(userId);
+    const participantName = userProfile.displayName || (isMentor ? 'Mentor' : 'Học viên');
+    const participantAvatar = userProfile.avatarUrl;
+
     const { token, wsUrl } = await this.livekitService.generateToken({
       roomName: room.livekitRoomName,
       identity: userId,
-      name: isMentor ? 'Mentor' : 'Học viên',
+      name: participantName,
+      metadata: JSON.stringify({
+        displayName: participantName,
+        avatarUrl: participantAvatar,
+        role,
+      }),
       role,
     });
 
@@ -885,8 +981,12 @@ export class SessionService implements OnModuleInit {
     }
     const dedupedParticipants = Array.from(uniqueMap.values());
 
+    const userIds = dedupedParticipants.map((p) => p.userId);
+    const profilesMap = await this.getUserProfilesMap(userIds);
+
     const now = new Date();
     const learners = dedupedParticipants.map((p) => {
+      const profile = profilesMap.get(p.userId);
       let activeSecs = p.activeSeconds || 0;
       if (p.connectionStatus === ConnectionStatus.ONLINE && p.lastHeartbeatAt) {
         const gap = Math.max(
@@ -904,6 +1004,8 @@ export class SessionService implements OnModuleInit {
       return {
         id: p.id,
         userId: p.userId,
+        learnerName: profile?.displayName || `Học viên (${p.userId.substring(0, 5)})`,
+        learnerAvatar: profile?.avatarUrl,
         role: p.role,
         connectionStatus: p.connectionStatus,
         joinedAt: p.joinedAt,

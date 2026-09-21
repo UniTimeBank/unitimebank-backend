@@ -26,6 +26,7 @@ export class LiveKitService {
     roomName: string;
     identity: string;
     name?: string;
+    metadata?: string;
     role: ParticipantRole;
   }): Promise<{ token: string; wsUrl: string }> {
     const isHost = params.role === ParticipantRole.MENTOR;
@@ -33,6 +34,7 @@ export class LiveKitService {
     const at = new AccessToken(this.apiKey, this.apiSecret, {
       identity: params.identity,
       name: params.name || params.identity,
+      metadata: params.metadata,
       ttl: '4h',
     });
 

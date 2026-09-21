@@ -8,6 +8,12 @@ export class PostSessionRating {
   @Column({ name: 'booking_id', nullable: true })
   bookingId?: string;
 
+  @Column({ name: 'room_id', nullable: true })
+  roomId?: string;
+
+  @Column({ name: 'session_type', default: 'ONE_ON_ONE' })
+  sessionType?: string;
+
   @Column({ name: 'session_id', nullable: true })
   sessionId?: string;
 
