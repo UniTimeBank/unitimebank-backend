@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "nest build api-gateway && nest build auth && nest build user && nest build post && nest build booking && nest build session && nest build wallet && nest build moderation && nest build notification",
     "start:gateway": "nest start api-gateway --watch",
     "start:auth": "nest start auth --watch",
     "start:user": "nest start user --watch",
