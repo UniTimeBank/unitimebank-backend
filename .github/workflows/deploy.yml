@@ -1,0 +1,75 @@
+name: Deploy UniTime Bank Backend to GCP
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  test_and_build:
+    name: 🧪 CI - Verify Build & Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🏗️ Build All Microservices
+        run: npm run build
+
+  deploy:
+    name: 🚀 CD - Deploy to GCP Compute Engine
+    needs: test_and_build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
+    steps:
+      - name: 🔐 Execute Remote Deployment via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.GCP_VM_HOST }}
+          username: ${{ secrets.GCP_VM_USER }}
+          key: ${{ secrets.GCP_VM_SSH_KEY }}
+          port: ${{ secrets.GCP_VM_PORT || 22 }}
+          script_stop: true
+          script: |
+            echo "=================================================="
+            echo "🚀 STARTING DEPLOYMENT ON GCP COMPUTE ENGINE..."
+            echo "=================================================="
+            
+            # Di chuyển vào thư mục dự án trên VM (Mặc định: ~/projects/unitimebank-backend)
+            TARGET_DIR="${{ secrets.GCP_PROJECT_PATH || '$HOME/projects/unitimebank-backend' }}"
+            eval TARGET_DIR=$TARGET_DIR
+            
+            if [ ! -d "$TARGET_DIR" ]; then
+              echo "❌ Error: Target directory $TARGET_DIR does not exist!"
+              exit 1
+            fi
+            
+            cd "$TARGET_DIR"
+            
+            echo "📥 Pulling latest code from branch ${{ github.ref_name }}..."
+            git fetch --all
+            git reset --hard origin/${{ github.ref_name }}
+            
+            echo "🐳 Rebuilding and rolling out microservices with Docker Compose..."
+            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+            
+            echo "🧹 Cleaning up dangling images..."
+            docker image prune -f
+            
+            echo "=================================================="
+            echo "✅ DEPLOYMENT FINISHED! CONTAINER STATUS:"
+            echo "=================================================="
+            docker compose -f docker-compose.prod.yml ps

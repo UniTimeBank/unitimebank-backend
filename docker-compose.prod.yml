@@ -1,0 +1,229 @@
+version: '3.8'
+
+networks:
+  unitimebank_net:
+    driver: bridge
+
+volumes:
+  rabbitmq_data:
+    driver: local
+  redis_data:
+    driver: local
+
+x-app-defaults: &app-defaults
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  networks:
+    - unitimebank_net
+  env_file:
+    - .env.production
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # ============================================================================
+  # Infrastructure Services: RabbitMQ & Redis
+  # ============================================================================
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: unitimebank_rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"     # AMQP Protocol
+      - "127.0.0.1:15672:15672" # Management UI (Local / SSH Tunnel only)
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - unitimebank_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: unitimebank_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - unitimebank_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # Microservices
+  # ============================================================================
+  auth:
+    <<: *app-defaults
+    container_name: unitimebank_auth
+    command: node dist/apps/auth/main.js
+    environment:
+      - PORT=3001
+      - SERVICE_NAME=auth
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  user:
+    <<: *app-defaults
+    container_name: unitimebank_user
+    command: node dist/apps/user/main.js
+    environment:
+      - PORT=3002
+      - SERVICE_NAME=user
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  post:
+    <<: *app-defaults
+    container_name: unitimebank_post
+    command: node dist/apps/post/main.js
+    environment:
+      - PORT=3003
+      - SERVICE_NAME=post
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  booking:
+    <<: *app-defaults
+    container_name: unitimebank_booking
+    command: node dist/apps/booking/main.js
+    environment:
+      - PORT=3004
+      - SERVICE_NAME=booking
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  session:
+    <<: *app-defaults
+    container_name: unitimebank_session
+    command: node dist/apps/session/main.js
+    environment:
+      - PORT=3005
+      - SERVICE_NAME=session
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  wallet:
+    <<: *app-defaults
+    container_name: unitimebank_wallet
+    command: node dist/apps/wallet/main.js
+    environment:
+      - PORT=3006
+      - SERVICE_NAME=wallet
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  moderation:
+    <<: *app-defaults
+    container_name: unitimebank_moderation
+    command: node dist/apps/moderation/main.js
+    environment:
+      - PORT=3007
+      - SERVICE_NAME=moderation
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  notification:
+    <<: *app-defaults
+    container_name: unitimebank_notification
+    command: node dist/apps/notification/main.js
+    environment:
+      - PORT=3008
+      - SERVICE_NAME=notification
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ============================================================================
+  # Public API Gateway (Entrypoint for REST and WebSockets)
+  # ============================================================================
+  api-gateway:
+    <<: *app-defaults
+    container_name: unitimebank_api_gateway
+    command: node dist/apps/api-gateway/main.js
+    ports:
+      - "127.0.0.1:3000:3000" # Expose to host for Nginx Reverse Proxy
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth:3001
+      - USER_SERVICE_URL=http://user:3002
+      - POST_SERVICE_URL=http://post:3003
+      - BOOKING_SERVICE_URL=http://booking:3004
+      - SESSION_SERVICE_URL=http://session:3005
+      - WALLET_SERVICE_URL=http://wallet:3006
+      - MODERATION_SERVICE_URL=http://moderation:3007
+      - NOTIFICATION_SERVICE_URL=http://notification:3008
+    depends_on:
+      auth:
+        condition: service_started
+      user:
+        condition: service_started
+      post:
+        condition: service_started
+      booking:
+        condition: service_started
+      session:
+        condition: service_started
+      wallet:
+        condition: service_started
+      moderation:
+        condition: service_started
+      notification:
+        condition: service_started
