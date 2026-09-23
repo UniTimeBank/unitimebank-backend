@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - develop
   workflow_dispatch:
 
 jobs:
@@ -32,7 +33,7 @@ jobs:
     name: 🚀 CD - Deploy to GCP Compute Engine
     needs: test_and_build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
 
     steps:
       - name: 🔐 Execute Remote Deployment via SSH

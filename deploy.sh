@@ -20,8 +20,9 @@ fi
 
 # 2. Cập nhật mã nguồn từ Git (nếu đang trong Git repo)
 if [ -d .git ]; then
-    echo "📥 Đang kéo mã nguồn mới nhất từ Git..."
-    git pull origin main || git pull
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "develop")
+    echo "📥 Đang kéo mã nguồn mới nhất từ Git (nhánh: $CURRENT_BRANCH)..."
+    git pull origin "$CURRENT_BRANCH" || git pull
 fi
 
 # 3. Build & Khởi động Docker containers với Docker Compose Production
