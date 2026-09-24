@@ -8,48 +8,62 @@ on:
       - develop
   workflow_dispatch:
 
-jobs:
-  test_and_build:
-    name: 🧪 CI - Verify Build & Dependencies
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
+  packages: write
 
+jobs:
+  build_and_push:
+    name: 🐳 Build & Push Image (GHCR)
+    runs-on: ubuntu-latest
     steps:
       - name: ⬇️ Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js 20.x
-        uses: actions/setup-node@v4
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔑 Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          node-version: 20
-          cache: 'npm'
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 📦 Install Dependencies
-        run: npm ci
-
-      - name: 🏗️ Build All Microservices
-        run: npm run build
+      - name: 🏗️ Build and Push Multi-stage Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ghcr.io/unitimebank/unitimebank-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
-    name: 🚀 CD - Deploy to GCP Compute Engine
-    needs: test_and_build
+    name: 🚀 CD - Ultra-fast Deploy on GCP VM
+    needs: build_and_push
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
 
     steps:
       - name: 🔐 Execute Remote Deployment via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_USER: ${{ github.actor }}
         with:
           host: ${{ secrets.GCP_VM_HOST }}
           username: ${{ secrets.GCP_VM_USER }}
           key: ${{ secrets.GCP_VM_SSH_KEY }}
           port: ${{ secrets.GCP_VM_PORT || 22 }}
+          envs: GH_TOKEN,GH_USER
           script_stop: true
           script: |
             echo "=================================================="
-            echo "🚀 STARTING DEPLOYMENT ON GCP COMPUTE ENGINE..."
+            echo "🚀 STARTING ULTRA-FAST DEPLOYMENT ON GCP..."
             echo "=================================================="
             
-            # Di chuyển vào thư mục dự án trên VM (Mặc định: ~/projects/unitimebank-backend)
             TARGET_DIR="${{ secrets.GCP_PROJECT_PATH || '$HOME/projects/unitimebank-backend' }}"
             eval TARGET_DIR=$TARGET_DIR
             
@@ -60,12 +74,18 @@ jobs:
             
             cd "$TARGET_DIR"
             
-            echo "📥 Pulling latest code from branch ${{ github.ref_name }}..."
+            echo "📥 Fetching latest code..."
             git fetch --all
             git reset --hard origin/${{ github.ref_name }}
             
-            echo "🐳 Rebuilding and rolling out microservices with Docker Compose..."
-            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+            echo "🔑 Authenticating with GitHub Container Registry..."
+            echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin || true
+            
+            echo "⚡ Pulling pre-built Docker image from GHCR..."
+            docker compose -f docker-compose.prod.yml pull || true
+            
+            echo "🐳 Rolling out microservices in seconds..."
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
             
             echo "🧹 Cleaning up dangling images..."
             docker image prune -f

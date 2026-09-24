@@ -784,18 +784,52 @@ export class ModerationService implements OnModuleInit {
   // ==================== LEADERBOARD (BẢNG XẾP HẠNG THI ĐUA) ====================
 
   /**
+   * Tính toán khoảng thời gian bắt đầu và kết thúc theo bộ lọc: tháng, quý, năm, toàn thời gian
+   */
+  private getTimeframeDateRange(timeframe: string): { startDate?: Date; endDate?: Date } {
+    const now = new Date();
+    if (timeframe === 'month' || timeframe === 'monthly') {
+      const startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+      const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      return { startDate, endDate };
+    }
+    if (timeframe === 'quarter') {
+      const currentQuarter = Math.floor(now.getMonth() / 3);
+      const startMonth = currentQuarter * 3;
+      const startDate = new Date(now.getFullYear(), startMonth, 1, 0, 0, 0);
+      const endDate = new Date(now.getFullYear(), startMonth + 3, 0, 23, 59, 59, 999);
+      return { startDate, endDate };
+    }
+    if (timeframe === 'year') {
+      const startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0);
+      const endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      return { startDate, endDate };
+    }
+    return {};
+  }
+
+  /**
    * Lấy Bảng Xếp Hạng Top Người Dạy Tiêu Biểu (Mentor Leaderboard)
    */
   async getMentorLeaderboard(timeframe = 'all', limit = 20) {
-    // 1. Lấy thông tin review & rating của tất cả mentors
-    const ratings = await this.ratingRepo
+    const { startDate, endDate } = this.getTimeframeDateRange(timeframe);
+
+    // 1. Lấy thông tin review & rating của tất cả mentors theo khung thời gian
+    let ratingsQb = this.ratingRepo
       .createQueryBuilder('r')
       .select('r.mentorId', 'mentorId')
       .addSelect('AVG(r.stars)', 'avgStars')
       .addSelect('COUNT(r.id)', 'totalReviews')
-      .addSelect('COUNT(CASE WHEN r.stars = 5 THEN 1 END)', 'fiveStarCount')
-      .groupBy('r.mentorId')
-      .getRawMany();
+      .addSelect('COUNT(CASE WHEN r.stars = 5 THEN 1 END)', 'fiveStarCount');
+
+    if (startDate && endDate) {
+      ratingsQb = ratingsQb.where('r.submittedAt >= :startDate AND r.submittedAt <= :endDate', {
+        startDate,
+        endDate,
+      });
+    }
+
+    const ratings = await ratingsQb.groupBy('r.mentorId').getRawMany();
 
     const ratingMap = new Map<string, { avgStars: number; totalReviews: number; fiveStarCount: number }>();
     for (const r of ratings) {
@@ -811,7 +845,7 @@ export class ModerationService implements OnModuleInit {
     // 2. Lấy danh sách profiles từ User Service
     let profiles: any[] = [];
     try {
-      const userUrl = process.env.USER_SERVICE_URL || 'http://127.0.0.1:3002';
+      const userUrl = process.env.USER_SERVICE_URL || 'http://user:3002';
       const res = await fetch(`${userUrl}/users?limit=100`);
       if (res.ok) {
         const data = await res.json();
@@ -867,9 +901,11 @@ export class ModerationService implements OnModuleInit {
    * Lấy Bảng Xếp Hạng Top Học Viên Tích Cực (Learner Leaderboard)
    */
   async getLearnerLeaderboard(timeframe = 'all', limit = 20) {
+    const { startDate, endDate } = this.getTimeframeDateRange(timeframe);
+
     let profiles: any[] = [];
     try {
-      const userUrl = process.env.USER_SERVICE_URL || 'http://127.0.0.1:3002';
+      const userUrl = process.env.USER_SERVICE_URL || 'http://user:3002';
       const res = await fetch(`${userUrl}/users?limit=100`);
       if (res.ok) {
         const data = await res.json();
@@ -879,13 +915,20 @@ export class ModerationService implements OnModuleInit {
       this.logger.debug('Could not fetch user profiles for learner leaderboard:', err);
     }
 
-    // Đếm số lượng review đã đóng góp
-    const reviewCounts = await this.ratingRepo
+    // Đếm số lượng review đã đóng góp theo khung thời gian
+    let reviewQb = this.ratingRepo
       .createQueryBuilder('r')
       .select('r.learnerId', 'learnerId')
-      .addSelect('COUNT(r.id)', 'count')
-      .groupBy('r.learnerId')
-      .getRawMany();
+      .addSelect('COUNT(r.id)', 'count');
+
+    if (startDate && endDate) {
+      reviewQb = reviewQb.where('r.submittedAt >= :startDate AND r.submittedAt <= :endDate', {
+        startDate,
+        endDate,
+      });
+    }
+
+    const reviewCounts = await reviewQb.groupBy('r.learnerId').getRawMany();
 
     const reviewMap = new Map<string, number>();
     for (const rc of reviewCounts) {
@@ -894,16 +937,15 @@ export class ModerationService implements OnModuleInit {
       }
     }
 
-    // Tính điểm LearnerRankScore theo công thức:
-    // (LearningMinutes * 0.8) + (SessionsCompleted * 20) + (SkillsLearned * 30) + (ReviewsSubmitted * 10)
+    // Tính điểm LearnerRankScore theo công thức MỚI (Đã loại bỏ tiêu chí Kỹ Năng Mới):
+    // (LearningMinutes * 1.0) + (SessionsCompleted * 25) + (ReviewsSubmitted * 15)
     const items = profiles.map((p) => {
       const learningMins = p.totalLearningMinutes || 0;
       const sessions = p.totalSessionsCompleted || 0;
-      const skillsCount = (p.skills || []).length;
       const reviewsCount = reviewMap.get(p.userId) || 0;
 
       const rankScore = Math.round(
-        (learningMins * 0.8) + (sessions * 20) + (skillsCount * 30) + (reviewsCount * 10),
+        (learningMins * 1.0) + (sessions * 25) + (reviewsCount * 15),
       );
 
       return {
@@ -914,7 +956,6 @@ export class ModerationService implements OnModuleInit {
         learnerTrustScore: p.learnerTrustScore ?? 100,
         totalLearningMinutes: learningMins,
         totalSessionsCompleted: sessions,
-        skillsLearnedCount: skillsCount,
         reviewsSubmittedCount: reviewsCount,
         rankScore,
       };

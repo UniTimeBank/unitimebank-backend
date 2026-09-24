@@ -23,14 +23,13 @@ export interface LearnerLeaderboardItemDto {
   learnerTrustScore: number;
   totalLearningMinutes: number;
   totalSessionsCompleted: number;
-  skillsLearnedCount: number;
   reviewsSubmittedCount: number;
   rankScore: number;
   badgeTitle?: string;
 }
 
 export interface LeaderboardResponseDto<T> {
-  timeframe: 'weekly' | 'monthly' | 'all';
+  timeframe: 'all' | 'month' | 'quarter' | 'year' | string;
   items: T[];
   total: number;
 }

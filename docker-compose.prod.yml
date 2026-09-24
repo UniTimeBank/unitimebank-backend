@@ -11,6 +11,7 @@ volumes:
     driver: local
 
 x-app-defaults: &app-defaults
+  image: ghcr.io/unitimebank/unitimebank-backend:latest
   build:
     context: .
     dockerfile: Dockerfile
