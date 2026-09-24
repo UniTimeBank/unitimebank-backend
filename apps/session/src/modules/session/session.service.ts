@@ -654,11 +654,15 @@ export class SessionService implements OnModuleInit {
       roomId: savedRoom.id,
       roomType: RoomType.GROUP,
       livekitRoomName: savedRoom.livekitRoomName,
+      title: savedRoom.title || 'Lớp học nhóm trực tuyến',
+      category: savedRoom.category,
       livekitToken: token,
       livekitWsUrl: wsUrl,
       status: savedRoom.status,
       role: ParticipantRole.MENTOR,
       mentorId: userId,
+      mentorName: hostName,
+      mentorAvatar: hostAvatar,
       canJoin: true,
     };
   }
@@ -797,15 +801,21 @@ export class SessionService implements OnModuleInit {
       hostAbsentSecondsRemaining = Math.max(0, 300 - elapsed);
     }
 
+    const mentorProfile = isMentor ? userProfile : await this.getUserProfileInfo(room.mentorId);
+
     return {
       roomId: room.id,
       roomType: RoomType.GROUP,
       livekitRoomName: room.livekitRoomName,
+      title: room.title || 'Lớp học nhóm trực tuyến',
+      category: room.category,
       livekitToken: token,
       livekitWsUrl: wsUrl,
       status: room.status,
       role,
       mentorId: room.mentorId,
+      mentorName: mentorProfile.displayName || 'Mentor',
+      mentorAvatar: mentorProfile.avatarUrl,
       availableBalance,
       canJoin: true,
       freeSecondsRemaining,

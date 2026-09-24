@@ -128,7 +128,11 @@ export interface LiveKitTokenResponse {
   role: ParticipantRole;
   bookingId?: string;
   mentorId: string;
+  mentorName?: string;
+  mentorAvatar?: string;
   learnerId?: string;
+  title?: string;
+  category?: string;
   escrowedCredit?: number;
   availableBalance?: number;
   canJoin: boolean;
@@ -140,3 +144,4 @@ export interface LiveKitTokenResponse {
   hostDisconnectedAt?: Date | string | null;
   hostAbsentSecondsRemaining?: number;
 }
+
