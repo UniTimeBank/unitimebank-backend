@@ -696,7 +696,7 @@ export class PostService implements OnModuleInit {
     const group = new this.groupModel({
       name: dto.name,
       description: dto.description,
-      coverImage: dto.coverImage || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=1200&auto=format&fit=crop',
+      coverImage: dto.coverImage || dto.coverUrl || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=1200&auto=format&fit=crop',
       avatarUrl: dto.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400&auto=format&fit=crop',
       category: dto.category || 'Công nghệ thông tin',
       creatorId,
@@ -710,7 +710,7 @@ export class PostService implements OnModuleInit {
         'Không spam hay đăng bài quảng cáo thương mại ngoài học thuật',
         'Chia sẻ kiến thức bổ ích và xây dựng',
       ],
-      isPublic: true,
+      isPublic: dto.isPublic ?? true,
     });
 
     const saved = await group.save();

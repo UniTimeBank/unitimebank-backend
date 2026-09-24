@@ -17,6 +17,11 @@ export class CreateCommunityGroupDto {
   @IsOptional()
   coverImage?: string;
 
+  @ApiPropertyOptional({ description: 'Ảnh bìa nhóm (alias)', example: 'https://...' })
+  @IsString()
+  @IsOptional()
+  coverUrl?: string;
+
   @ApiPropertyOptional({ description: 'Avatar nhóm', example: 'https://...' })
   @IsString()
   @IsOptional()
@@ -31,6 +36,11 @@ export class CreateCommunityGroupDto {
   @IsArray()
   @IsOptional()
   rules?: string[];
+
+  @ApiPropertyOptional({ description: 'Công khai nhóm', example: true })
+  @IsBoolean()
+  @IsOptional()
+  isPublic?: boolean;
 }
 
 export class CreateGroupPostDto {
