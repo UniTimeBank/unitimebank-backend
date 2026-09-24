@@ -13,6 +13,7 @@ export const DIRECT_UPLOAD_PURPOSES = [
   'AVATAR',
   'CHAT_ATTACHMENT',
   'REPORT_EVIDENCE',
+  'POST_ATTACHMENT',
 ] as const;
 export type DirectUploadPurpose = (typeof DIRECT_UPLOAD_PURPOSES)[number];
 

@@ -1,8 +1,8 @@
 import {
   BadRequestException,
-  Body,
   Controller,
   Post,
+  Body,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -69,6 +69,22 @@ export class UploadRoutes {
         resourceType: 'image',
         overwrite: true,
         maxBytes: 5 * 1024 * 1024,
+        allowedMimeTypes: AVATAR_MIME_TYPES,
+      });
+    }
+
+    if (dto.purpose === 'POST_ATTACHMENT') {
+      this.assertSafeExtension(dto.fileName);
+      this.assertFile(dto, 10 * 1024 * 1024, AVATAR_MIME_TYPES);
+      const isImage = dto.mimeType.startsWith('image/');
+      const extension = this.safeExtension(dto.fileName);
+      const publicId = `${userId}_${randomUUID()}${isImage ? '' : extension}`;
+      return this.cloudinaryService.createDirectUploadSignature({
+        folder: `unitimebank/post-attachments/${userId}`,
+        publicId,
+        resourceType: isImage ? 'image' : 'raw',
+        overwrite: false,
+        maxBytes: 10 * 1024 * 1024,
         allowedMimeTypes: AVATAR_MIME_TYPES,
       });
     }
