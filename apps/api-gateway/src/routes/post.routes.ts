@@ -303,6 +303,21 @@ export class CommunityGroupRoutes {
     private readonly userClient: UserClient,
   ) {}
 
+  private extractUserIdFromReq(req: any): string | undefined {
+    let userId = req?.user?.id || req?.user?.sub || req?.headers?.['x-user-id'];
+    if (!userId && req?.headers?.authorization) {
+      try {
+        const token = req.headers.authorization.replace(/^Bearer\s+/i, '');
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+          userId = payload?.id || payload?.sub || payload?.userId;
+        }
+      } catch {}
+    }
+    return userId;
+  }
+
   /** Lấy danh sách nhóm cộng đồng */
   @Get()
   @ApiOperation({ summary: 'Lấy danh sách nhóm học tập (kèm bộ lọc tìm kiếm & chuyên ngành)' })
@@ -312,7 +327,7 @@ export class CommunityGroupRoutes {
     @Query('myGroupsOnly') myGroupsOnly?: boolean,
     @Req() req?: any,
   ) {
-    const userId = req?.user?.id || req?.user?.sub || req?.headers?.['x-user-id'];
+    const userId = this.extractUserIdFromReq(req);
     return this.postClient.getAllGroups({
       search,
       category,
@@ -355,7 +370,7 @@ export class CommunityGroupRoutes {
   @Get(':groupId')
   @ApiOperation({ summary: 'Lấy thông tin chi tiết một nhóm' })
   async getGroupById(@Param('groupId') groupId: string, @Req() req: any) {
-    const currentUserId = req?.user?.id || req?.user?.sub || req?.headers?.['x-user-id'];
+    const currentUserId = this.extractUserIdFromReq(req);
     return this.postClient.getGroupById(groupId, currentUserId);
   }
 
@@ -383,7 +398,7 @@ export class CommunityGroupRoutes {
   @Get(':groupId/posts')
   @ApiOperation({ summary: 'Lấy bảng tin bài viết của nhóm' })
   async getGroupPosts(@Param('groupId') groupId: string, @Req() req: any) {
-    const currentUserId = req?.user?.id || req?.user?.sub || req?.headers?.['x-user-id'];
+    const currentUserId = this.extractUserIdFromReq(req);
     return this.postClient.getGroupPosts(groupId, currentUserId);
   }
 
