@@ -906,8 +906,14 @@ export class ModerationService implements OnModuleInit {
     // (Stars * 200) + (TeachingMinutes * 0.5) + (StudentsTaught * 10) + (5StarReviews * 15)
     const items = profiles.map((p) => {
       const r = ratingMap.get(p.userId) || { avgStars: 0, totalReviews: 0, fiveStarCount: 0 };
-      const teachingMins = p.totalTeachingMinutes || 0;
-      const studentsTaught = p.totalSessionsCompleted || r.totalReviews || 0;
+      const teachingMins = Math.max(
+        Number(p.totalTeachingMinutes || 0),
+        Number((r.totalReviews || 0) * 60),
+      );
+      const studentsTaught = Math.max(
+        Number(p.totalSessionsCompleted || 0),
+        Number(r.totalReviews || 0),
+      );
       
       const starScore = r.totalReviews > 0 ? (r.avgStars * 200) : 0;
       const rankScore = Math.round(
@@ -988,9 +994,15 @@ export class ModerationService implements OnModuleInit {
     // Tính điểm LearnerRankScore theo công thức MỚI (Đã loại bỏ tiêu chí Kỹ Năng Mới):
     // (LearningMinutes * 1.0) + (SessionsCompleted * 25) + (ReviewsSubmitted * 15)
     const items = profiles.map((p) => {
-      const learningMins = p.totalLearningMinutes || 0;
-      const sessions = p.totalSessionsCompleted || 0;
       const reviewsCount = reviewMap.get(p.userId) || 0;
+      const sessions = Math.max(
+        Number(p.totalSessionsCompleted || 0),
+        Number(reviewsCount || 0),
+      );
+      const learningMins = Math.max(
+        Number(p.totalLearningMinutes || 0),
+        Number(sessions * 60),
+      );
 
       const rankScore = Math.round(
         (learningMins * 1.0) + (sessions * 25) + (reviewsCount * 15),
