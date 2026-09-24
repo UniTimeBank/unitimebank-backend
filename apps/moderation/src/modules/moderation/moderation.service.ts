@@ -784,35 +784,82 @@ export class ModerationService implements OnModuleInit {
   // ==================== LEADERBOARD (BẢNG XẾP HẠNG THI ĐUA) ====================
 
   /**
-   * Tính toán khoảng thời gian bắt đầu và kết thúc theo bộ lọc: tháng, quý, năm, toàn thời gian
+   * Tính toán khoảng thời gian bắt đầu và kết thúc theo bộ lọc: tháng, quý, năm, toàn thời gian và kỳ chỉ định (period)
    */
-  private getTimeframeDateRange(timeframe: string): { startDate?: Date; endDate?: Date } {
+  private getTimeframeDateRange(timeframe: string, period?: string): { startDate?: Date; endDate?: Date } {
     const now = new Date();
+
+    // 1. Theo Tháng (hỗ trợ period = 'YYYY-MM')
     if (timeframe === 'month' || timeframe === 'monthly') {
-      const startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
-      const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      let year = now.getFullYear();
+      let month = now.getMonth();
+
+      if (period) {
+        const parts = period.split('-');
+        if (parts.length === 2) {
+          const parsedYear = parseInt(parts[0], 10);
+          const parsedMonth = parseInt(parts[1], 10) - 1;
+          if (!isNaN(parsedYear) && !isNaN(parsedMonth) && parsedMonth >= 0 && parsedMonth <= 11) {
+            year = parsedYear;
+            month = parsedMonth;
+          }
+        }
+      }
+
+      const startDate = new Date(year, month, 1, 0, 0, 0, 0);
+      const endDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
       return { startDate, endDate };
     }
+
+    // 2. Theo Quý (hỗ trợ period = 'YYYY-Q1' .. 'YYYY-Q4')
     if (timeframe === 'quarter') {
-      const currentQuarter = Math.floor(now.getMonth() / 3);
-      const startMonth = currentQuarter * 3;
-      const startDate = new Date(now.getFullYear(), startMonth, 1, 0, 0, 0);
-      const endDate = new Date(now.getFullYear(), startMonth + 3, 0, 23, 59, 59, 999);
+      let year = now.getFullYear();
+      let quarter = Math.floor(now.getMonth() / 3) + 1;
+
+      if (period) {
+        const parts = period.toUpperCase().split('-');
+        if (parts.length === 2) {
+          const parsedYear = parseInt(parts[0], 10);
+          const qMatch = parts[1].replace('Q', '');
+          const parsedQ = parseInt(qMatch, 10);
+          if (!isNaN(parsedYear) && !isNaN(parsedQ) && parsedQ >= 1 && parsedQ <= 4) {
+            year = parsedYear;
+            quarter = parsedQ;
+          }
+        }
+      }
+
+      const startMonth = (quarter - 1) * 3;
+      const startDate = new Date(year, startMonth, 1, 0, 0, 0, 0);
+      const endDate = new Date(year, startMonth + 3, 0, 23, 59, 59, 999);
       return { startDate, endDate };
     }
+
+    // 3. Theo Năm (hỗ trợ period = 'YYYY')
     if (timeframe === 'year') {
-      const startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0);
-      const endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      let year = now.getFullYear();
+
+      if (period) {
+        const parsedYear = parseInt(period, 10);
+        if (!isNaN(parsedYear) && parsedYear >= 2000 && parsedYear <= 2100) {
+          year = parsedYear;
+        }
+      }
+
+      const startDate = new Date(year, 0, 1, 0, 0, 0, 0);
+      const endDate = new Date(year, 11, 31, 23, 59, 59, 999);
       return { startDate, endDate };
     }
+
+    // 4. Toàn thời gian
     return {};
   }
 
   /**
    * Lấy Bảng Xếp Hạng Top Người Dạy Tiêu Biểu (Mentor Leaderboard)
    */
-  async getMentorLeaderboard(timeframe = 'all', limit = 20) {
-    const { startDate, endDate } = this.getTimeframeDateRange(timeframe);
+  async getMentorLeaderboard(timeframe = 'all', period?: string, limit = 20) {
+    const { startDate, endDate } = this.getTimeframeDateRange(timeframe, period);
 
     // 1. Lấy thông tin review & rating của tất cả mentors theo khung thời gian
     let ratingsQb = this.ratingRepo
@@ -892,6 +939,7 @@ export class ModerationService implements OnModuleInit {
 
     return {
       timeframe,
+      period,
       items: rankedItems,
       total: rankedItems.length,
     };
@@ -900,8 +948,8 @@ export class ModerationService implements OnModuleInit {
   /**
    * Lấy Bảng Xếp Hạng Top Học Viên Tích Cực (Learner Leaderboard)
    */
-  async getLearnerLeaderboard(timeframe = 'all', limit = 20) {
-    const { startDate, endDate } = this.getTimeframeDateRange(timeframe);
+  async getLearnerLeaderboard(timeframe = 'all', period?: string, limit = 20) {
+    const { startDate, endDate } = this.getTimeframeDateRange(timeframe, period);
 
     let profiles: any[] = [];
     try {
@@ -971,6 +1019,7 @@ export class ModerationService implements OnModuleInit {
 
     return {
       timeframe,
+      period,
       items: rankedItems,
       total: rankedItems.length,
     };

@@ -30,6 +30,7 @@ export interface LearnerLeaderboardItemDto {
 
 export interface LeaderboardResponseDto<T> {
   timeframe: 'all' | 'month' | 'quarter' | 'year' | string;
+  period?: string;
   items: T[];
   total: number;
 }

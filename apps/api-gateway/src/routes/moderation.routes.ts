@@ -129,28 +129,34 @@ export class ModerationRoutes {
 
   @Get('leaderboard/mentors')
   @ApiOperation({ summary: 'Lấy Bảng Vàng Top Người Dạy Tiêu Biểu (Mentor Leaderboard)' })
-  @ApiQuery({ name: 'timeframe', required: false, enum: ['weekly', 'monthly', 'all'] })
+  @ApiQuery({ name: 'timeframe', required: false, enum: ['month', 'quarter', 'year', 'all'] })
+  @ApiQuery({ name: 'period', required: false, type: String, description: 'Kỳ cụ thể: YYYY-MM (tháng), YYYY-Qx (quý), YYYY (năm)' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async getMentorLeaderboard(
     @Query('timeframe') timeframe?: string,
+    @Query('period') period?: string,
     @Query('limit') limit?: number,
   ) {
     return this.moderationClient.send('moderation.getMentorLeaderboard', {
       timeframe: timeframe || 'all',
+      period,
       limit: limit ? Number(limit) : 20,
     });
   }
 
   @Get('leaderboard/learners')
   @ApiOperation({ summary: 'Lấy Bảng Vàng Top Học Viên Tích Cực (Learner Leaderboard)' })
-  @ApiQuery({ name: 'timeframe', required: false, enum: ['weekly', 'monthly', 'all'] })
+  @ApiQuery({ name: 'timeframe', required: false, enum: ['month', 'quarter', 'year', 'all'] })
+  @ApiQuery({ name: 'period', required: false, type: String, description: 'Kỳ cụ thể: YYYY-MM (tháng), YYYY-Qx (quý), YYYY (năm)' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async getLearnerLeaderboard(
     @Query('timeframe') timeframe?: string,
+    @Query('period') period?: string,
     @Query('limit') limit?: number,
   ) {
     return this.moderationClient.send('moderation.getLearnerLeaderboard', {
       timeframe: timeframe || 'all',
+      period,
       limit: limit ? Number(limit) : 20,
     });
   }

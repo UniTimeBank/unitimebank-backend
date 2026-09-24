@@ -68,13 +68,13 @@ export class ModerationController {
   // ==================== LEADERBOARD ====================
 
   @MessagePattern('moderation.getMentorLeaderboard')
-  async getMentorLeaderboard(@Payload() data: { timeframe?: string; limit?: number }) {
-    return this.moderationService.getMentorLeaderboard(data?.timeframe, data?.limit);
+  async getMentorLeaderboard(@Payload() data: { timeframe?: string; period?: string; limit?: number }) {
+    return this.moderationService.getMentorLeaderboard(data?.timeframe, data?.period, data?.limit);
   }
 
   @MessagePattern('moderation.getLearnerLeaderboard')
-  async getLearnerLeaderboard(@Payload() data: { timeframe?: string; limit?: number }) {
-    return this.moderationService.getLearnerLeaderboard(data?.timeframe, data?.limit);
+  async getLearnerLeaderboard(@Payload() data: { timeframe?: string; period?: string; limit?: number }) {
+    return this.moderationService.getLearnerLeaderboard(data?.timeframe, data?.period, data?.limit);
   }
 
   // ==================== VIOLATION REPORTS ====================
