@@ -57,6 +57,7 @@ jobs:
           username: ${{ secrets.GCP_VM_USER }}
           key: ${{ secrets.GCP_VM_SSH_KEY }}
           port: ${{ secrets.GCP_VM_PORT || 22 }}
+          command_timeout: 30m
           envs: GH_TOKEN,GH_USER
           script_stop: true
           script: |
@@ -81,10 +82,13 @@ jobs:
             echo "🔑 Authenticating with GitHub Container Registry..."
             echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin || true
             
-            echo "⚡ Pulling pre-built Docker image from GHCR..."
-            docker compose -f docker-compose.prod.yml pull || true
+            echo "⚡ Pulling single pre-built Docker image from GHCR..."
+            docker pull ghcr.io/unitimebank/unitimebank-backend:latest || true
             
-            echo "🐳 Rolling out microservices in seconds..."
+            echo "🐳 Starting infrastructure services (RabbitMQ & Redis)..."
+            docker compose -f docker-compose.prod.yml up -d rabbitmq redis
+            
+            echo "🐳 Rolling out all 9 microservices..."
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
             
             echo "🧹 Cleaning up dangling images..."
