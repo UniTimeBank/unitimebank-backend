@@ -119,6 +119,74 @@ export class PostController {
   }
 
   // ====================================================================
+  // COMMUNITY GROUP MESSAGE PATTERNS (Facebook Groups)
+  // ====================================================================
+
+  @MessagePattern('post.group.create')
+  async createGroup(@Payload() data: { creatorId: string; dto: any; userSnapshot?: any }) {
+    return this.postService.createGroup(data.creatorId, data.dto, data.userSnapshot);
+  }
+
+  @MessagePattern('post.group.findAll')
+  async getAllGroups(@Payload() query: any) {
+    return this.postService.getAllGroups(query);
+  }
+
+  @MessagePattern('post.group.findOne')
+  async getGroupById(@Payload() data: { groupId: string; currentUserId?: string }) {
+    return this.postService.getGroupById(data.groupId, data.currentUserId);
+  }
+
+  @MessagePattern('post.group.join')
+  async joinGroup(@Payload() data: { groupId: string; userId: string }) {
+    return this.postService.joinGroup(data.groupId, data.userId);
+  }
+
+  @MessagePattern('post.group.leave')
+  async leaveGroup(@Payload() data: { groupId: string; userId: string }) {
+    return this.postService.leaveGroup(data.groupId, data.userId);
+  }
+
+  @MessagePattern('post.group.post.create')
+  async createGroupPost(
+    @Payload() data: { groupId: string; authorId: string; dto: any; userSnapshot?: any },
+  ) {
+    return this.postService.createGroupPost(data.groupId, data.authorId, data.dto, data.userSnapshot);
+  }
+
+  @MessagePattern('post.group.post.findAll')
+  async getGroupPosts(@Payload() data: { groupId: string; currentUserId?: string }) {
+    return this.postService.getGroupPosts(data.groupId, data.currentUserId);
+  }
+
+  @MessagePattern('post.group.post.toggleLike')
+  async toggleLikeGroupPost(@Payload() data: { groupId: string; postId: string; userId: string }) {
+    return this.postService.toggleLikeGroupPost(data.groupId, data.postId, data.userId);
+  }
+
+  @MessagePattern('post.group.post.delete')
+  async deleteGroupPost(@Payload() data: { groupId: string; postId: string; userId: string }) {
+    return this.postService.deleteGroupPost(data.groupId, data.postId, data.userId);
+  }
+
+  @MessagePattern('post.group.comment.create')
+  async createGroupComment(
+    @Payload() data: { groupId: string; postId: string; authorId: string; dto: any; userSnapshot?: any },
+  ) {
+    return this.postService.createGroupComment(data.groupId, data.postId, data.authorId, data.dto, data.userSnapshot);
+  }
+
+  @MessagePattern('post.group.comment.findAll')
+  async getGroupComments(@Payload() data: { postId: string }) {
+    return this.postService.getGroupComments(data.postId);
+  }
+
+  @MessagePattern('post.group.comment.delete')
+  async deleteGroupComment(@Payload() data: { commentId: string; userId: string }) {
+    return this.postService.deleteGroupComment(data.commentId, data.userId);
+  }
+
+  // ====================================================================
   // EVENT PATTERN CONSUMERS (RABBITMQ ASYNC EVENTS)
   // ====================================================================
 

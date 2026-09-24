@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientProxy } from '@nestjs/microservices';
 import { Model, Types } from 'mongoose';
@@ -7,6 +7,12 @@ import {
   MentorPostDocument,
   LearnerRequest,
   LearnerRequestDocument,
+  CommunityGroup,
+  CommunityGroupDocument,
+  GroupPost,
+  GroupPostDocument,
+  GroupComment,
+  GroupCommentDocument,
 } from './schemas';
 import {
   CreateMentorPostDto,
@@ -26,6 +32,12 @@ import {
   PostStatus,
   LearnerRequestStatus,
   ModerationDecision,
+  CreateCommunityGroupDto,
+  CreateGroupPostDto,
+  CreateGroupCommentDto,
+  CommunityGroupResponseDto,
+  GroupPostResponseDto,
+  GroupCommentResponseDto,
 } from '@app/contracts/post';
 import {
   PostCreatedEvent,
@@ -35,7 +47,7 @@ import {
 } from '@app/contracts/events';
 
 @Injectable()
-export class PostService {
+export class PostService implements OnModuleInit {
   private readonly logger = new Logger(PostService.name);
 
   constructor(
@@ -43,9 +55,134 @@ export class PostService {
     private readonly mentorPostModel: Model<MentorPostDocument>,
     @InjectModel(LearnerRequest.name)
     private readonly learnerRequestModel: Model<LearnerRequestDocument>,
+    @InjectModel(CommunityGroup.name)
+    private readonly groupModel: Model<CommunityGroupDocument>,
+    @InjectModel(GroupPost.name)
+    private readonly groupPostModel: Model<GroupPostDocument>,
+    @InjectModel(GroupComment.name)
+    private readonly groupCommentModel: Model<GroupCommentDocument>,
     @Inject('NOTIFICATION_SERVICE')
     private readonly notificationClient: ClientProxy,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.seedDefaultGroups();
+    } catch (err) {
+      this.logger.error('Error seeding default community groups:', err);
+    }
+  }
+
+  /**
+   * Seed dữ liệu các nhóm cộng đồng mẫu nếu chưa có
+   */
+  private async seedDefaultGroups() {
+    const count = await this.groupModel.countDocuments();
+    if (count > 0) return;
+
+    this.logger.log('Seeding initial community groups and posts...');
+
+    const defaultGroups = [
+      {
+        name: 'Cộng đồng Lập trình & CNTT (ReactJS, Node.js, AI)',
+        description: 'Không gian giao lưu học thuật, chia sẻ kinh nghiệm làm đồ án, review code và giải đáp thắc mắc ngành Công nghệ thông tin & Khoa học máy tính.',
+        coverImage: 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?q=80&w=1200&auto=format&fit=crop',
+        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400&auto=format&fit=crop',
+        category: 'Công nghệ thông tin',
+        creatorId: 'system-admin',
+        creatorName: 'Ban Học Thuật CNTT',
+        creatorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400&auto=format&fit=crop',
+        memberIds: ['system-admin'],
+        membersCount: 1420,
+        postsCount: 48,
+        rules: [
+          'Tôn trọng và hỗ trợ lẫn nhau trong học tập',
+          'Không spam hay đăng bài quảng cáo thương mại ngoài học thuật',
+          'Đính kèm chi tiết code hoặc thông báo lỗi khi hỏi bài tập',
+        ],
+      },
+      {
+        name: 'Hội Ôn Thi & Luyện Giải Đề Toán Cao Cấp / Giải Tích 1-2',
+        description: 'Nhóm học tập tương trợ nhau vượt qua các môn Toán đại cương: Giải tích, Đại số tuyến tính, Xác suất thống kê với ngân hàng đề thi chọn lọc.',
+        coverImage: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?q=80&w=1200&auto=format&fit=crop',
+        avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=400&auto=format&fit=crop',
+        category: 'Toán học',
+        creatorId: 'system-admin',
+        creatorName: 'CLB Toán Sinh Viên',
+        creatorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=400&auto=format&fit=crop',
+        memberIds: ['system-admin'],
+        membersCount: 890,
+        postsCount: 32,
+        rules: [
+          'Khuyến khích chia sẻ lời giải có giải thích chi tiết',
+          'Không đăng đề thi gian lận trong giờ thi thực tế',
+        ],
+      },
+      {
+        name: 'Góc Tiếng Anh Giao Tiếp & Luyện Thi IELTS 7.0+ / TOEIC',
+        description: 'Luyện nói Speaking hàng tuần, chia sẻ bí quyết làm bài Listening/Reading và nguồn tài liệu tự ôn thi chứng chỉ tiếng Anh chuẩn quốc tế.',
+        coverImage: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?q=80&w=1200&auto=format&fit=crop',
+        avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=400&auto=format&fit=crop',
+        category: 'Ngoại ngữ',
+        creatorId: 'system-admin',
+        creatorName: 'English Club UniTime',
+        creatorAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=400&auto=format&fit=crop',
+        memberIds: ['system-admin'],
+        membersCount: 2150,
+        postsCount: 95,
+        rules: [
+          'Khuyến khích bình luận và giao tiếp bằng tiếng Anh để cùng tiến bộ',
+          'Chia sẻ tài liệu chính thống có nguồn gốc rõ ràng',
+        ],
+      },
+      {
+        name: 'Cộng Đồng Kinh Tế, Marketing & Kỹ Năng Mềm Thực Chiến',
+        description: 'Thảo luận phân tích case study thị trường, đồ án Marketing, lập kế hoạch kinh doanh và kỹ năng thuyết trình, làm việc nhóm chuyên nghiệp.',
+        coverImage: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?q=80&w=1200&auto=format&fit=crop',
+        avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=400&auto=format&fit=crop',
+        category: 'Kinh tế & Marketing',
+        creatorId: 'system-admin',
+        creatorName: 'Marketing Hub',
+        creatorAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=400&auto=format&fit=crop',
+        memberIds: ['system-admin'],
+        membersCount: 760,
+        postsCount: 24,
+        rules: [
+          'Chia sẻ góc nhìn đa chiều, văn minh',
+          'Bảo mật thông tin dự án thực tế của các nhóm',
+        ],
+      },
+    ];
+
+    for (const g of defaultGroups) {
+      const groupDoc: any = await this.groupModel.create(g);
+
+      // Thêm bài post mẫu cho mỗi nhóm
+      const post1: any = await this.groupPostModel.create({
+        groupId: groupDoc._id,
+        authorId: 'system-admin',
+        authorName: g.creatorName,
+        authorAvatar: g.avatarUrl,
+        authorHeadline: 'Quản trị viên cộng đồng',
+        content: `Chào mừng tất cả các bạn thành viên mới đến với không gian "${g.name}"! Hãy thoải mái đăng bài đặt câu hỏi, chia sẻ tài liệu và trao đổi học thuật cùng nhau nhé.`,
+        tag: 'GENERAL',
+        likes: [],
+        commentsCount: 1,
+        isPinned: true,
+      });
+
+      await this.groupCommentModel.create({
+        postId: post1._id,
+        groupId: groupDoc._id,
+        authorId: 'system-member',
+        authorName: 'Nguyễn Văn Minh',
+        authorAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200&auto=format&fit=crop',
+        content: 'Tuyệt vời quá! Cảm ơn admin đã tạo nhóm học tập bổ ích này.',
+      });
+    }
+
+    this.logger.log('Seeded default community groups successfully!');
+  }
 
   // ====================================================================
   // 1. MENTOR POST OPERATIONS (UC-02.1)
@@ -656,6 +793,351 @@ export class PostService {
       expectedCreditAmount: doc.expectedCreditAmount ?? 60,
       desiredSlots: doc.desiredSlots || [],
       status: doc.status,
+      createdAt: doc.createdAt ? doc.createdAt.toISOString() : new Date().toISOString(),
+      updatedAt: doc.updatedAt ? doc.updatedAt.toISOString() : new Date().toISOString(),
+    };
+  }
+
+  // ====================================================================
+  // 6. COMMUNITY GROUP OPERATIONS (Facebook Group Style)
+  // ====================================================================
+
+  /** Tạo nhóm cộng đồng mới */
+  async createGroup(
+    creatorId: string,
+    dto: CreateCommunityGroupDto,
+    userSnapshot?: { name?: string; avatar?: string },
+  ): Promise<CommunityGroupResponseDto> {
+    const group = new this.groupModel({
+      name: dto.name,
+      description: dto.description,
+      coverImage: dto.coverImage || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=1200&auto=format&fit=crop',
+      avatarUrl: dto.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400&auto=format&fit=crop',
+      category: dto.category || 'Công nghệ thông tin',
+      creatorId,
+      creatorName: userSnapshot?.name || 'Thành viên',
+      creatorAvatar: userSnapshot?.avatar || '',
+      memberIds: [creatorId],
+      membersCount: 1,
+      postsCount: 0,
+      rules: dto.rules && dto.rules.length > 0 ? dto.rules : [
+        'Tôn trọng và hỗ trợ lẫn nhau trong học tập',
+        'Không spam hay đăng bài quảng cáo thương mại ngoài học thuật',
+        'Chia sẻ kiến thức bổ ích và xây dựng',
+      ],
+      isPublic: true,
+    });
+
+    const saved = await group.save();
+    return this.mapGroupToDto(saved, creatorId);
+  }
+
+  /** Lấy danh sách nhóm kèm bộ lọc tìm kiếm / chuyên ngành / nhóm của tôi */
+  async getAllGroups(query?: {
+    search?: string;
+    category?: string;
+    userId?: string;
+    myGroupsOnly?: boolean;
+  }): Promise<{ groups: CommunityGroupResponseDto[]; total: number }> {
+    const filter: any = {};
+
+    if (query?.category && query.category !== 'ALL' && query.category !== 'Tất cả') {
+      filter.category = query.category;
+    }
+
+    if (query?.myGroupsOnly && query?.userId) {
+      filter.memberIds = query.userId;
+    }
+
+    if (query?.search) {
+      const regex = new RegExp(query.search, 'i');
+      filter.$or = [{ name: regex }, { description: regex }, { category: regex }];
+    }
+
+    const groups = await this.groupModel.find(filter).sort({ createdAt: -1 }).exec();
+    const formatted = groups.map((g) => this.mapGroupToDto(g, query?.userId));
+
+    return {
+      groups: formatted,
+      total: formatted.length,
+    };
+  }
+
+  /** Lấy chi tiết một nhóm theo ID */
+  async getGroupById(groupId: string, currentUserId?: string): Promise<CommunityGroupResponseDto> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+    return this.mapGroupToDto(group, currentUserId);
+  }
+
+  /** Tham gia nhóm */
+  async joinGroup(groupId: string, userId: string): Promise<CommunityGroupResponseDto> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    if (!group.memberIds.includes(userId)) {
+      group.memberIds.push(userId);
+      group.membersCount = group.memberIds.length;
+      await group.save();
+    }
+
+    return this.mapGroupToDto(group, userId);
+  }
+
+  /** Rời nhóm */
+  async leaveGroup(groupId: string, userId: string): Promise<CommunityGroupResponseDto> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    group.memberIds = group.memberIds.filter((id) => id !== userId);
+    group.membersCount = group.memberIds.length;
+    await group.save();
+
+    return this.mapGroupToDto(group, userId);
+  }
+
+  // ====================================================================
+  // 7. GROUP POST OPERATIONS (Bảng tin bài viết nhóm)
+  // ====================================================================
+
+  /** Đăng bài viết mới vào nhóm */
+  async createGroupPost(
+    groupId: string,
+    authorId: string,
+    dto: CreateGroupPostDto,
+    userSnapshot?: { name?: string; avatar?: string; headline?: string },
+  ): Promise<GroupPostResponseDto> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    // Tự động thêm vào thành viên nếu chưa join
+    if (!group.memberIds.includes(authorId)) {
+      group.memberIds.push(authorId);
+      group.membersCount = group.memberIds.length;
+    }
+    group.postsCount = (group.postsCount || 0) + 1;
+    await group.save();
+
+    const post = new this.groupPostModel({
+      groupId: new Types.ObjectId(groupId),
+      authorId,
+      authorName: userSnapshot?.name || 'Thành viên',
+      authorAvatar: userSnapshot?.avatar || '',
+      authorHeadline: userSnapshot?.headline || 'Sinh viên UniTime',
+      content: dto.content,
+      images: dto.images || [],
+      tag: dto.tag || 'GENERAL',
+      likes: [],
+      commentsCount: 0,
+      isPinned: false,
+    });
+
+    const saved = await post.save();
+    return this.mapGroupPostToDto(saved, authorId);
+  }
+
+  /** Lấy danh sách bài viết trong nhóm */
+  async getGroupPosts(groupId: string, currentUserId?: string): Promise<GroupPostResponseDto[]> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const posts = await this.groupPostModel
+      .find({ groupId: new Types.ObjectId(groupId) as any })
+      .sort({ isPinned: -1, createdAt: -1 })
+      .exec();
+
+    return posts.map((p) => this.mapGroupPostToDto(p, currentUserId));
+  }
+
+  /** Thả tim / Bỏ tim bài viết (Like / Unlike) */
+  async toggleLikeGroupPost(groupId: string, postId: string, userId: string): Promise<{ isLiked: boolean; likesCount: number }> {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new BadRequestException('Invalid Post ID');
+    }
+    const post = await this.groupPostModel.findById(postId).exec();
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    const hasLiked = post.likes.includes(userId);
+    if (hasLiked) {
+      post.likes = post.likes.filter((id) => id !== userId);
+    } else {
+      post.likes.push(userId);
+    }
+
+    await post.save();
+
+    return {
+      isLiked: !hasLiked,
+      likesCount: post.likes.length,
+    };
+  }
+
+  /** Xóa bài viết trong nhóm */
+  async deleteGroupPost(groupId: string, postId: string, userId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new BadRequestException('Invalid Post ID');
+    }
+    const post = await this.groupPostModel.findById(postId).exec();
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+    if (post.authorId !== userId) {
+      throw new ForbiddenException('You are not authorized to delete this post');
+    }
+
+    await this.groupPostModel.findByIdAndDelete(postId).exec();
+    await this.groupCommentModel.deleteMany({ postId: new Types.ObjectId(postId) as any }).exec();
+    await this.groupModel.findByIdAndUpdate(groupId, { $inc: { postsCount: -1 } }).exec();
+  }
+
+  // ====================================================================
+  // 8. GROUP COMMENT OPERATIONS (Bình luận bài viết)
+  // ====================================================================
+
+  /** Viết bình luận vào bài viết nhóm */
+  async createGroupComment(
+    groupId: string,
+    postId: string,
+    authorId: string,
+    dto: CreateGroupCommentDto,
+    userSnapshot?: { name?: string; avatar?: string },
+  ): Promise<GroupCommentResponseDto> {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new BadRequestException('Invalid Post ID');
+    }
+    const post = await this.groupPostModel.findById(postId).exec();
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    const comment = new this.groupCommentModel({
+      postId: new Types.ObjectId(postId),
+      groupId: new Types.ObjectId(groupId),
+      authorId,
+      authorName: userSnapshot?.name || 'Thành viên',
+      authorAvatar: userSnapshot?.avatar || '',
+      content: dto.content,
+    });
+
+    const saved = await comment.save();
+
+    post.commentsCount = (post.commentsCount || 0) + 1;
+    await post.save();
+
+    return {
+      _id: saved._id.toString(),
+      postId: saved.postId.toString(),
+      groupId: saved.groupId.toString(),
+      authorId: saved.authorId,
+      authorName: saved.authorName,
+      authorAvatar: saved.authorAvatar,
+      content: saved.content,
+      createdAt: saved.createdAt ? saved.createdAt.toISOString() : new Date().toISOString(),
+    };
+  }
+
+  /** Lấy danh sách bình luận của bài viết */
+  async getGroupComments(postId: string): Promise<GroupCommentResponseDto[]> {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new BadRequestException('Invalid Post ID');
+    }
+    const comments = await this.groupCommentModel
+      .find({ postId: new Types.ObjectId(postId) as any })
+      .sort({ createdAt: 1 })
+      .exec();
+
+    return comments.map((c) => ({
+      _id: c._id.toString(),
+      postId: c.postId.toString(),
+      groupId: c.groupId.toString(),
+      authorId: c.authorId,
+      authorName: c.authorName,
+      authorAvatar: c.authorAvatar,
+      content: c.content,
+      createdAt: c.createdAt ? c.createdAt.toISOString() : new Date().toISOString(),
+    }));
+  }
+
+  /** Xóa bình luận */
+  async deleteGroupComment(commentId: string, userId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(commentId)) {
+      throw new BadRequestException('Invalid Comment ID');
+    }
+    const comment = await this.groupCommentModel.findById(commentId).exec();
+    if (!comment) {
+      throw new NotFoundException('Comment not found');
+    }
+    if (comment.authorId !== userId) {
+      throw new ForbiddenException('Not authorized to delete this comment');
+    }
+
+    await this.groupCommentModel.findByIdAndDelete(commentId).exec();
+    await this.groupPostModel.findByIdAndUpdate(comment.postId, { $inc: { commentsCount: -1 } }).exec();
+  }
+
+  // ====================================================================
+  // COMMUNITY MAPPERS
+  // ====================================================================
+
+  private mapGroupToDto(doc: any, currentUserId?: string): CommunityGroupResponseDto {
+    const memberIds = doc.memberIds || [];
+    return {
+      _id: doc._id.toString(),
+      name: doc.name,
+      description: doc.description,
+      coverImage: doc.coverImage,
+      avatarUrl: doc.avatarUrl,
+      category: doc.category,
+      creatorId: doc.creatorId,
+      creatorName: doc.creatorName,
+      creatorAvatar: doc.creatorAvatar,
+      membersCount: doc.membersCount ?? memberIds.length,
+      postsCount: doc.postsCount ?? 0,
+      rules: doc.rules || [],
+      isJoined: currentUserId ? memberIds.includes(currentUserId) : false,
+      createdAt: doc.createdAt ? doc.createdAt.toISOString() : new Date().toISOString(),
+      updatedAt: doc.updatedAt ? doc.updatedAt.toISOString() : new Date().toISOString(),
+    };
+  }
+
+  private mapGroupPostToDto(doc: any, currentUserId?: string): GroupPostResponseDto {
+    const likes = doc.likes || [];
+    return {
+      _id: doc._id.toString(),
+      groupId: doc.groupId.toString(),
+      authorId: doc.authorId,
+      authorName: doc.authorName,
+      authorAvatar: doc.authorAvatar,
+      authorHeadline: doc.authorHeadline,
+      content: doc.content,
+      images: doc.images || [],
+      tag: doc.tag || 'GENERAL',
+      likesCount: likes.length,
+      isLiked: currentUserId ? likes.includes(currentUserId) : false,
+      commentsCount: doc.commentsCount ?? 0,
+      isPinned: doc.isPinned ?? false,
       createdAt: doc.createdAt ? doc.createdAt.toISOString() : new Date().toISOString(),
       updatedAt: doc.updatedAt ? doc.updatedAt.toISOString() : new Date().toISOString(),
     };

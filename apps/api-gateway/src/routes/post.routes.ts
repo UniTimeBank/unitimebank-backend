@@ -31,6 +31,9 @@ import {
   SearchPostsResponseDto,
   PostRecommendationsResponseDto,
   PostSuggestionsResponseDto,
+  CreateCommunityGroupDto,
+  CreateGroupPostDto,
+  CreateGroupCommentDto,
 } from '@app/contracts/post';
 
 // ====================================================================
@@ -285,5 +288,222 @@ export class PostSearchRoutes {
     const userId = req.user?.id || req.headers['x-user-id'];
     const skills = req.user?.skills?.map((s: any) => s.skillName) || [];
     return this.postClient.getRecommendations(userId, skills);
+  }
+}
+
+// ====================================================================
+// 4. COMMUNITY GROUP ROUTES (Facebook Groups Model)
+// ====================================================================
+
+@ApiTags('Community - Nhóm học tập & Bảng tin')
+@Controller('groups')
+export class CommunityGroupRoutes {
+  constructor(
+    private readonly postClient: PostClient,
+    private readonly userClient: UserClient,
+  ) {}
+
+  /** Lấy danh sách nhóm cộng đồng */
+  @Get()
+  @ApiOperation({ summary: 'Lấy danh sách nhóm học tập (kèm bộ lọc tìm kiếm & chuyên ngành)' })
+  async getAllGroups(
+    @Query('search') search?: string,
+    @Query('category') category?: string,
+    @Query('myGroupsOnly') myGroupsOnly?: boolean,
+    @Req() req?: any,
+  ) {
+    const userId = req?.user?.id || req?.user?.sub || req?.headers?.['x-user-id'];
+    return this.postClient.getAllGroups({
+      search,
+      category,
+      userId,
+      myGroupsOnly: String(myGroupsOnly) === 'true',
+    });
+  }
+
+  /** Tạo nhóm cộng đồng mới */
+  @Post()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Tạo nhóm học tập mới' })
+  async createGroup(@Body() dto: CreateCommunityGroupDto, @Req() req: any) {
+    const creatorId = req.user?.id || req.user?.sub;
+    let userSnapshot: any;
+    if (req.headers?.authorization) {
+      try {
+        const profile = await this.userClient.getMyProfile({ Authorization: req.headers.authorization });
+        userSnapshot = {
+          name: profile?.displayName || profile?.fullName || req.user?.displayName || 'Thành viên',
+          avatar: profile?.avatarUrl || req.user?.avatarUrl || '',
+        };
+      } catch {
+        userSnapshot = {
+          name: req.user?.displayName || 'Thành viên',
+          avatar: req.user?.avatarUrl || '',
+        };
+      }
+    } else {
+      userSnapshot = {
+        name: req.user?.displayName || 'Thành viên',
+        avatar: req.user?.avatarUrl || '',
+      };
+    }
+    return this.postClient.createGroup(creatorId, dto, userSnapshot);
+  }
+
+  /** Lấy chi tiết nhóm theo ID */
+  @Get(':groupId')
+  @ApiOperation({ summary: 'Lấy thông tin chi tiết một nhóm' })
+  async getGroupById(@Param('groupId') groupId: string, @Req() req: any) {
+    const currentUserId = req?.user?.id || req?.user?.sub || req?.headers?.['x-user-id'];
+    return this.postClient.getGroupById(groupId, currentUserId);
+  }
+
+  /** Tham gia nhóm */
+  @Post(':groupId/join')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Tham gia vào nhóm học tập' })
+  async joinGroup(@Param('groupId') groupId: string, @Req() req: any) {
+    const userId = req.user?.id || req.user?.sub;
+    return this.postClient.joinGroup(groupId, userId);
+  }
+
+  /** Rời nhóm */
+  @Post(':groupId/leave')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Rời khỏi nhóm học tập' })
+  async leaveGroup(@Param('groupId') groupId: string, @Req() req: any) {
+    const userId = req.user?.id || req.user?.sub;
+    return this.postClient.leaveGroup(groupId, userId);
+  }
+
+  /** Lấy danh sách bài viết trong nhóm */
+  @Get(':groupId/posts')
+  @ApiOperation({ summary: 'Lấy bảng tin bài viết của nhóm' })
+  async getGroupPosts(@Param('groupId') groupId: string, @Req() req: any) {
+    const currentUserId = req?.user?.id || req?.user?.sub || req?.headers?.['x-user-id'];
+    return this.postClient.getGroupPosts(groupId, currentUserId);
+  }
+
+  /** Đăng bài viết mới vào nhóm */
+  @Post(':groupId/posts')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Đăng bài viết mới vào nhóm' })
+  async createGroupPost(
+    @Param('groupId') groupId: string,
+    @Body() dto: CreateGroupPostDto,
+    @Req() req: any,
+  ) {
+    const authorId = req.user?.id || req.user?.sub;
+    let userSnapshot: any;
+    if (req.headers?.authorization) {
+      try {
+        const profile = await this.userClient.getMyProfile({ Authorization: req.headers.authorization });
+        userSnapshot = {
+          name: profile?.displayName || profile?.fullName || req.user?.displayName || 'Thành viên',
+          avatar: profile?.avatarUrl || req.user?.avatarUrl || '',
+          headline: profile?.bio || profile?.headline || 'Sinh viên UniTime',
+        };
+      } catch {
+        userSnapshot = {
+          name: req.user?.displayName || 'Thành viên',
+          avatar: req.user?.avatarUrl || '',
+          headline: 'Sinh viên UniTime',
+        };
+      }
+    } else {
+      userSnapshot = {
+        name: req.user?.displayName || 'Thành viên',
+        avatar: req.user?.avatarUrl || '',
+        headline: 'Sinh viên UniTime',
+      };
+    }
+    return this.postClient.createGroupPost(groupId, authorId, dto, userSnapshot);
+  }
+
+  /** Thích / Bỏ thích bài viết trong nhóm */
+  @Post(':groupId/posts/:postId/like')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Thả tim / Bỏ tim bài viết trong nhóm' })
+  async toggleLikeGroupPost(
+    @Param('groupId') groupId: string,
+    @Param('postId') postId: string,
+    @Req() req: any,
+  ) {
+    const userId = req.user?.id || req.user?.sub;
+    return this.postClient.toggleLikeGroupPost(groupId, postId, userId);
+  }
+
+  /** Xóa bài viết trong nhóm */
+  @Delete(':groupId/posts/:postId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Xóa bài viết của chính mình trong nhóm' })
+  async deleteGroupPost(
+    @Param('groupId') groupId: string,
+    @Param('postId') postId: string,
+    @Req() req: any,
+  ) {
+    const userId = req.user?.id || req.user?.sub;
+    return this.postClient.deleteGroupPost(groupId, postId, userId);
+  }
+
+  /** Lấy danh sách bình luận của bài viết */
+  @Get(':groupId/posts/:postId/comments')
+  @ApiOperation({ summary: 'Lấy danh sách bình luận của bài viết' })
+  async getGroupComments(@Param('postId') postId: string) {
+    return this.postClient.getGroupComments(postId);
+  }
+
+  /** Viết bình luận vào bài viết */
+  @Post(':groupId/posts/:postId/comments')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Viết bình luận vào bài viết' })
+  async createGroupComment(
+    @Param('groupId') groupId: string,
+    @Param('postId') postId: string,
+    @Body() dto: CreateGroupCommentDto,
+    @Req() req: any,
+  ) {
+    const authorId = req.user?.id || req.user?.sub;
+    let userSnapshot: any;
+    if (req.headers?.authorization) {
+      try {
+        const profile = await this.userClient.getMyProfile({ Authorization: req.headers.authorization });
+        userSnapshot = {
+          name: profile?.displayName || profile?.fullName || req.user?.displayName || 'Thành viên',
+          avatar: profile?.avatarUrl || req.user?.avatarUrl || '',
+        };
+      } catch {
+        userSnapshot = {
+          name: req.user?.displayName || 'Thành viên',
+          avatar: req.user?.avatarUrl || '',
+        };
+      }
+    } else {
+      userSnapshot = {
+        name: req.user?.displayName || 'Thành viên',
+        avatar: req.user?.avatarUrl || '',
+      };
+    }
+    return this.postClient.createGroupComment(groupId, postId, authorId, dto, userSnapshot);
+  }
+
+  /** Xóa bình luận */
+  @Delete(':groupId/posts/:postId/comments/:commentId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Xóa bình luận của chính mình' })
+  async deleteGroupComment(
+    @Param('commentId') commentId: string,
+    @Req() req: any,
+  ) {
+    const userId = req.user?.id || req.user?.sub;
+    return this.postClient.deleteGroupComment(commentId, userId);
   }
 }

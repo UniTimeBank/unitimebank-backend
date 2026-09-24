@@ -14,7 +14,7 @@ import { SessionGateway } from './gateways/session.gateway';
 import { BookingGateway } from './gateways/booking.gateway';
 import { AuthRoutes } from './routes/auth.routes';
 import { UserRoutes, UserAvatarRoutes, UserFollowRoutes, UserCheckinRoutes, UserSkillRoutes, SkillCategoryRoutes, UserScheduleRoutes } from './routes/user.routes';
-import { PostMentorRoutes, PostLearnerRoutes, PostSearchRoutes } from './routes/post.routes';
+import { PostMentorRoutes, PostLearnerRoutes, PostSearchRoutes, CommunityGroupRoutes } from './routes/post.routes';
 import { BookingRoutes } from './routes/booking.routes';
 import { SessionRoutes } from './routes/session.routes';
 import { WalletRoutes } from './routes/wallet.routes';
@@ -49,6 +49,7 @@ import { UploadRoutes } from './routes/upload.routes';
     PostMentorRoutes,
     PostLearnerRoutes,
     PostSearchRoutes,
+    CommunityGroupRoutes,
     BookingRoutes,
     SessionRoutes,
     WalletRoutes,

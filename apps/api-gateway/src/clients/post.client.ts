@@ -107,4 +107,57 @@ export class PostClient {
   getRecommendations(userId?: string, skills?: string[]): Promise<PostRecommendationsResponseDto> {
     return this.send('post.recommendations', { userId, skills });
   }
+
+  // ====================================================================
+  // Community Group Methods (Facebook Groups Style)
+  // ====================================================================
+
+  createGroup(creatorId: string, dto: any, userSnapshot?: any): Promise<any> {
+    return this.send('post.group.create', { creatorId, dto, userSnapshot });
+  }
+
+  getAllGroups(query: any): Promise<any> {
+    return this.send('post.group.findAll', query);
+  }
+
+  getGroupById(groupId: string, currentUserId?: string): Promise<any> {
+    return this.send('post.group.findOne', { groupId, currentUserId });
+  }
+
+  joinGroup(groupId: string, userId: string): Promise<any> {
+    return this.send('post.group.join', { groupId, userId });
+  }
+
+  leaveGroup(groupId: string, userId: string): Promise<any> {
+    return this.send('post.group.leave', { groupId, userId });
+  }
+
+  createGroupPost(groupId: string, authorId: string, dto: any, userSnapshot?: any): Promise<any> {
+    return this.send('post.group.post.create', { groupId, authorId, dto, userSnapshot });
+  }
+
+  getGroupPosts(groupId: string, currentUserId?: string): Promise<any> {
+    return this.send('post.group.post.findAll', { groupId, currentUserId });
+  }
+
+  toggleLikeGroupPost(groupId: string, postId: string, userId: string): Promise<any> {
+    return this.send('post.group.post.toggleLike', { groupId, postId, userId });
+  }
+
+  deleteGroupPost(groupId: string, postId: string, userId: string): Promise<any> {
+    return this.send('post.group.post.delete', { groupId, postId, userId });
+  }
+
+  createGroupComment(groupId: string, postId: string, authorId: string, dto: any, userSnapshot?: any): Promise<any> {
+    return this.send('post.group.comment.create', { groupId, postId, authorId, dto, userSnapshot });
+  }
+
+  getGroupComments(postId: string): Promise<any> {
+    return this.send('post.group.comment.findAll', { postId });
+  }
+
+  deleteGroupComment(commentId: string, userId: string): Promise<any> {
+    return this.send('post.group.comment.delete', { commentId, userId });
+  }
 }
+

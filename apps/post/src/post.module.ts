@@ -2,7 +2,20 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { PostController, PostService, MentorPost, MentorPostSchema, LearnerRequest, LearnerRequestSchema } from './modules/post';
+import {
+  PostController,
+  PostService,
+  MentorPost,
+  MentorPostSchema,
+  LearnerRequest,
+  LearnerRequestSchema,
+  CommunityGroup,
+  CommunityGroupSchema,
+  GroupPost,
+  GroupPostSchema,
+  GroupComment,
+  GroupCommentSchema,
+} from './modules/post';
 
 @Module({
   imports: [
@@ -11,6 +24,9 @@ import { PostController, PostService, MentorPost, MentorPostSchema, LearnerReque
     MongooseModule.forFeature([
       { name: MentorPost.name, schema: MentorPostSchema },
       { name: LearnerRequest.name, schema: LearnerRequestSchema },
+      { name: CommunityGroup.name, schema: CommunityGroupSchema },
+      { name: GroupPost.name, schema: GroupPostSchema },
+      { name: GroupComment.name, schema: GroupCommentSchema },
     ]),
     ClientsModule.register([
       {
