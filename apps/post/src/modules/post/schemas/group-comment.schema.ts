@@ -11,6 +11,12 @@ export class GroupComment {
   @Prop({ type: Types.ObjectId, ref: 'CommunityGroup', required: true, index: true })
   groupId: Types.ObjectId | string;
 
+  @Prop({ type: Types.ObjectId, ref: 'GroupComment', default: null, index: true })
+  parentId?: Types.ObjectId | string;
+
+  @Prop({ default: '' })
+  replyToUserName?: string;
+
   @Prop({ required: true })
   authorId: string;
 
@@ -29,3 +35,4 @@ export class GroupComment {
 
 export const GroupCommentSchema = SchemaFactory.createForClass(GroupComment);
 GroupCommentSchema.index({ postId: 1, createdAt: 1 });
+GroupCommentSchema.index({ parentId: 1 });

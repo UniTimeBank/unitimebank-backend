@@ -888,7 +888,11 @@ export class PostService implements OnModuleInit {
     if (!post) {
       throw new NotFoundException('Post not found');
     }
-    if (post.authorId !== userId) {
+    const group = await this.groupModel.findById(groupId).exec();
+    const isGroupOwner = group && group.creatorId === userId;
+    const isAuthor = post.authorId === userId;
+
+    if (!isAuthor && !isGroupOwner) {
       throw new ForbiddenException('You are not authorized to delete this post');
     }
 
@@ -901,7 +905,7 @@ export class PostService implements OnModuleInit {
   // 8. GROUP COMMENT OPERATIONS (Bình luận bài viết)
   // ====================================================================
 
-  /** Viết bình luận vào bài viết nhóm */
+  /** Viết bình luận vào bài viết nhóm (Hỗ trợ trả lời 2 cấp) */
   async createGroupComment(
     groupId: string,
     postId: string,
@@ -917,9 +921,23 @@ export class PostService implements OnModuleInit {
       throw new NotFoundException('Post not found');
     }
 
+    let finalParentId: Types.ObjectId | null = null;
+    if (dto.parentId && Types.ObjectId.isValid(dto.parentId)) {
+      const parentComment = await this.groupCommentModel.findById(dto.parentId).exec();
+      if (parentComment) {
+        // Enforce 2 levels max:
+        // If parentComment is already a level-2 reply, link to its root parentId
+        finalParentId = parentComment.parentId
+          ? new Types.ObjectId(parentComment.parentId as string)
+          : new Types.ObjectId(dto.parentId);
+      }
+    }
+
     const comment = new this.groupCommentModel({
       postId: new Types.ObjectId(postId),
       groupId: new Types.ObjectId(groupId),
+      parentId: finalParentId,
+      replyToUserName: dto.replyToUserName || '',
       authorId,
       authorName: userSnapshot?.name || 'Thành viên',
       authorAvatar: userSnapshot?.avatar || '',
@@ -935,6 +953,8 @@ export class PostService implements OnModuleInit {
       _id: saved._id.toString(),
       postId: saved.postId.toString(),
       groupId: saved.groupId.toString(),
+      parentId: saved.parentId ? saved.parentId.toString() : undefined,
+      replyToUserName: saved.replyToUserName || undefined,
       authorId: saved.authorId,
       authorName: saved.authorName,
       authorAvatar: saved.authorAvatar,
@@ -957,6 +977,8 @@ export class PostService implements OnModuleInit {
       _id: c._id.toString(),
       postId: c.postId.toString(),
       groupId: c.groupId.toString(),
+      parentId: c.parentId ? c.parentId.toString() : undefined,
+      replyToUserName: c.replyToUserName || undefined,
       authorId: c.authorId,
       authorName: c.authorName,
       authorAvatar: c.authorAvatar,
@@ -974,12 +996,32 @@ export class PostService implements OnModuleInit {
     if (!comment) {
       throw new NotFoundException('Comment not found');
     }
-    if (comment.authorId !== userId) {
+    const group = await this.groupModel.findById(comment.groupId).exec();
+    const isGroupOwner = group && group.creatorId === userId;
+    const isAuthor = comment.authorId === userId;
+
+    if (!isAuthor && !isGroupOwner) {
       throw new ForbiddenException('Not authorized to delete this comment');
     }
 
-    await this.groupCommentModel.findByIdAndDelete(commentId).exec();
-    await this.groupPostModel.findByIdAndUpdate(comment.postId, { $inc: { commentsCount: -1 } }).exec();
+    // Cascade delete child replies under this comment if it's a parent
+    const replies = await this.groupCommentModel
+      .find({ parentId: new Types.ObjectId(commentId) as any })
+      .exec();
+    const totalDeleted = 1 + replies.length;
+
+    await this.groupCommentModel
+      .deleteMany({
+        $or: [
+          { _id: new Types.ObjectId(commentId) },
+          { parentId: new Types.ObjectId(commentId) },
+        ],
+      })
+      .exec();
+
+    await this.groupPostModel
+      .findByIdAndUpdate(comment.postId, { $inc: { commentsCount: -totalDeleted } })
+      .exec();
   }
 
   // ====================================================================

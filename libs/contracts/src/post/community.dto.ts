@@ -1,56 +1,54 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsEnum, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateCommunityGroupDto {
-  @ApiProperty({ description: 'Tên nhóm học tập', example: 'Cộng đồng Lập trình Frontend' })
+  @ApiProperty({ description: 'Tên nhóm học tập', example: 'Nhóm Lập Trình TypeScript' })
   @IsString()
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ description: 'Mô tả chi tiết nhóm', example: 'Nơi trao đổi kinh nghiệm, giải đáp thắc mắc...' })
+  @ApiProperty({ description: 'Mô tả mục tiêu của nhóm' })
   @IsString()
   @IsNotEmpty()
   description: string;
 
-  @ApiPropertyOptional({ description: 'Ảnh bìa nhóm', example: 'https://...' })
+  @ApiPropertyOptional({ description: 'Ảnh bìa nhóm' })
   @IsString()
   @IsOptional()
   coverImage?: string;
 
-  @ApiPropertyOptional({ description: 'Ảnh bìa nhóm (alias)', example: 'https://...' })
+  @ApiPropertyOptional({ description: 'Ảnh bìa nhóm (alias)' })
   @IsString()
   @IsOptional()
   coverUrl?: string;
 
-  @ApiPropertyOptional({ description: 'Avatar nhóm', example: 'https://...' })
+  @ApiPropertyOptional({ description: 'Avatar nhóm' })
   @IsString()
   @IsOptional()
   avatarUrl?: string;
 
-  @ApiProperty({ description: 'Chuyên ngành / Danh mục', example: 'Công nghệ thông tin' })
+  @ApiProperty({ description: 'Danh mục nhóm' })
   @IsString()
   @IsNotEmpty()
   category: string;
 
-  @ApiPropertyOptional({ description: 'Quy tắc nhóm', example: ['Không spam', 'Tôn trọng nhau'] })
-  @IsArray()
+  @ApiPropertyOptional({ description: 'Nội quy nhóm', type: [String] })
   @IsOptional()
   rules?: string[];
 
-  @ApiPropertyOptional({ description: 'Công khai nhóm', example: true })
+  @ApiPropertyOptional({ description: 'Nhóm công khai' })
   @IsBoolean()
   @IsOptional()
   isPublic?: boolean;
 }
 
 export class CreateGroupPostDto {
-  @ApiProperty({ description: 'Nội dung bài viết', example: 'Có bạn nào rảnh cùng giải bài tập Giải Tích 2 không?' })
+  @ApiProperty({ description: 'Nội dung bài viết', example: 'Có bạn nào cần giải bài tập Giải tích 1 không?' })
   @IsString()
   @IsNotEmpty()
   content: string;
 
-  @ApiPropertyOptional({ description: 'Danh sách ảnh đính kèm', example: ['https://...'] })
-  @IsArray()
+  @ApiPropertyOptional({ description: 'Danh sách URL ảnh đính kèm', example: ['https://res.cloudinary.com/...'] })
   @IsOptional()
   images?: string[];
 
@@ -65,6 +63,16 @@ export class CreateGroupCommentDto {
   @IsString()
   @IsNotEmpty()
   content: string;
+
+  @ApiPropertyOptional({ description: 'ID của bình luận cha nếu là câu trả lời (cấp 2)' })
+  @IsOptional()
+  @IsString()
+  parentId?: string;
+
+  @ApiPropertyOptional({ description: 'Tên người dùng được trả lời' })
+  @IsOptional()
+  @IsString()
+  replyToUserName?: string;
 }
 
 export interface CommunityGroupResponseDto {
@@ -107,6 +115,8 @@ export interface GroupCommentResponseDto {
   _id: string;
   postId: string;
   groupId: string;
+  parentId?: string;
+  replyToUserName?: string;
   authorId: string;
   authorName: string;
   authorAvatar: string;
