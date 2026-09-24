@@ -147,6 +147,29 @@ export class PostController {
     return this.postService.leaveGroup(data.groupId, data.userId);
   }
 
+  @MessagePattern('post.group.transferOwnership')
+  async transferGroupOwnership(
+    @Payload()
+    data: {
+      groupId: string;
+      currentOwnerId: string;
+      newOwnerId: string;
+      newOwnerSnapshot?: any;
+    },
+  ) {
+    return this.postService.transferGroupOwnership(
+      data.groupId,
+      data.currentOwnerId,
+      data.newOwnerId,
+      data.newOwnerSnapshot,
+    );
+  }
+
+  @MessagePattern('post.group.delete')
+  async deleteGroup(@Payload() data: { groupId: string; userId: string }) {
+    return this.postService.deleteGroup(data.groupId, data.userId);
+  }
+
   @MessagePattern('post.group.post.create')
   async createGroupPost(
     @Payload() data: { groupId: string; authorId: string; dto: any; userSnapshot?: any },

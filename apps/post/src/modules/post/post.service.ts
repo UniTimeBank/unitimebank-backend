@@ -789,11 +789,81 @@ export class PostService implements OnModuleInit {
       throw new NotFoundException('Group not found');
     }
 
+    if (group.creatorId === userId) {
+      throw new BadRequestException(
+        'Trưởng nhóm không thể rời nhóm. Vui lòng phân quyền (chuyển quyền trưởng nhóm) cho người khác hoặc giải tán nhóm.',
+      );
+    }
+
     group.memberIds = group.memberIds.filter((id) => id !== userId);
     group.membersCount = group.memberIds.length;
     await group.save();
 
     return this.mapGroupToDto(group, userId);
+  }
+
+  /** Chuyển quyền trưởng nhóm (Transfer Ownership) */
+  async transferGroupOwnership(
+    groupId: string,
+    currentOwnerId: string,
+    newOwnerId: string,
+    newOwnerSnapshot?: { name?: string; avatar?: string },
+  ): Promise<CommunityGroupResponseDto> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    if (group.creatorId !== currentOwnerId) {
+      throw new ForbiddenException('Chỉ trưởng nhóm hiện tại mới có quyền chuyển quyền trưởng nhóm');
+    }
+
+    if (currentOwnerId === newOwnerId) {
+      throw new BadRequestException('Người dùng đã là trưởng nhóm rồi');
+    }
+
+    if (!group.memberIds.includes(newOwnerId)) {
+      throw new BadRequestException('Người dùng này chưa tham gia nhóm, không thể phân quyền');
+    }
+
+    group.creatorId = newOwnerId;
+    if (newOwnerSnapshot?.name) {
+      group.creatorName = newOwnerSnapshot.name;
+    }
+    if (newOwnerSnapshot?.avatar !== undefined) {
+      group.creatorAvatar = newOwnerSnapshot.avatar;
+    }
+
+    await group.save();
+    return this.mapGroupToDto(group, currentOwnerId);
+  }
+
+  /** Giải tán nhóm (Delete/Disband Group) */
+  async deleteGroup(
+    groupId: string,
+    userId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    if (group.creatorId !== userId) {
+      throw new ForbiddenException('Chỉ trưởng nhóm mới có quyền giải tán nhóm');
+    }
+
+    // Cascade delete group, group posts, group comments
+    await this.groupModel.findByIdAndDelete(groupId).exec();
+    await this.groupPostModel.deleteMany({ groupId: new Types.ObjectId(groupId) }).exec();
+    await this.groupCommentModel.deleteMany({ groupId: new Types.ObjectId(groupId) }).exec();
+
+    return { success: true, message: 'Giải tán nhóm thành công' };
   }
 
   // ====================================================================
@@ -1040,6 +1110,7 @@ export class PostService implements OnModuleInit {
       creatorId: doc.creatorId,
       creatorName: doc.creatorName,
       creatorAvatar: doc.creatorAvatar,
+      memberIds: memberIds,
       membersCount: doc.membersCount ?? memberIds.length,
       postsCount: doc.postsCount ?? 0,
       rules: doc.rules || [],

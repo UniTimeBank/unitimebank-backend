@@ -132,6 +132,24 @@ export class PostClient {
     return this.send('post.group.leave', { groupId, userId });
   }
 
+  transferGroupOwnership(
+    groupId: string,
+    currentOwnerId: string,
+    newOwnerId: string,
+    newOwnerSnapshot?: any,
+  ): Promise<any> {
+    return this.send('post.group.transferOwnership', {
+      groupId,
+      currentOwnerId,
+      newOwnerId,
+      newOwnerSnapshot,
+    });
+  }
+
+  deleteGroup(groupId: string, userId: string): Promise<any> {
+    return this.send('post.group.delete', { groupId, userId });
+  }
+
   createGroupPost(groupId: string, authorId: string, dto: any, userSnapshot?: any): Promise<any> {
     return this.send('post.group.post.create', { groupId, authorId, dto, userSnapshot });
   }

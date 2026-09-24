@@ -75,6 +75,13 @@ export class CreateGroupCommentDto {
   replyToUserName?: string;
 }
 
+export class TransferGroupOwnershipDto {
+  @ApiProperty({ description: 'ID của thành viên mới được chuyển quyền trưởng nhóm' })
+  @IsString()
+  @IsNotEmpty()
+  newOwnerId: string;
+}
+
 export interface CommunityGroupResponseDto {
   _id: string;
   name: string;
@@ -85,6 +92,7 @@ export interface CommunityGroupResponseDto {
   creatorId: string;
   creatorName: string;
   creatorAvatar: string;
+  memberIds?: string[];
   membersCount: number;
   postsCount: number;
   rules: string[];

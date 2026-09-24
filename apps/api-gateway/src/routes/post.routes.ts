@@ -34,6 +34,7 @@ import {
   CreateCommunityGroupDto,
   CreateGroupPostDto,
   CreateGroupCommentDto,
+  TransferGroupOwnershipDto,
 } from '@app/contracts/post';
 
 // ====================================================================
@@ -392,6 +393,84 @@ export class CommunityGroupRoutes {
   async leaveGroup(@Param('groupId') groupId: string, @Req() req: any) {
     const userId = req.user?.id || req.user?.sub;
     return this.postClient.leaveGroup(groupId, userId);
+  }
+
+  /** Chuyển quyền trưởng nhóm */
+  @Post(':groupId/transfer-ownership')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Chuyển quyền trưởng nhóm cho thành viên khác' })
+  async transferGroupOwnership(
+    @Param('groupId') groupId: string,
+    @Body() dto: TransferGroupOwnershipDto,
+    @Req() req: any,
+  ) {
+    const currentOwnerId = req.user?.id || req.user?.sub;
+    let newOwnerSnapshot: any;
+    try {
+      const profile = await this.userClient.getPublicProfile(dto.newOwnerId);
+      newOwnerSnapshot = {
+        name: profile?.displayName || profile?.fullName || 'Thành viên',
+        avatar: profile?.avatarUrl || '',
+      };
+    } catch {
+      newOwnerSnapshot = {
+        name: 'Thành viên',
+        avatar: '',
+      };
+    }
+    return this.postClient.transferGroupOwnership(
+      groupId,
+      currentOwnerId,
+      dto.newOwnerId,
+      newOwnerSnapshot,
+    );
+  }
+
+  /** Giải tán nhóm */
+  @Delete(':groupId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Giải tán nhóm học tập (chỉ Trưởng nhóm)' })
+  async deleteGroup(@Param('groupId') groupId: string, @Req() req: any) {
+    const userId = req.user?.id || req.user?.sub;
+    return this.postClient.deleteGroup(groupId, userId);
+  }
+
+  /** Lấy danh sách thành viên nhóm */
+  @Get(':groupId/members')
+  @ApiOperation({ summary: 'Lấy danh sách thành viên trong nhóm' })
+  async getGroupMembers(@Param('groupId') groupId: string) {
+    const group = await this.postClient.getGroupById(groupId);
+    if (!group || !Array.isArray(group.memberIds)) {
+      return [];
+    }
+    const memberIds: string[] = group.memberIds;
+    const members = await Promise.all(
+      memberIds.map(async (id: string) => {
+        try {
+          const profile = await this.userClient.getPublicProfile(id);
+          return {
+            id,
+            name:
+              profile?.displayName ||
+              profile?.fullName ||
+              (id === group.creatorId ? group.creatorName : 'Thành viên'),
+            avatar: profile?.avatarUrl || (id === group.creatorId ? group.creatorAvatar : ''),
+            email: profile?.email || '',
+            role: id === group.creatorId ? 'CREATOR' : 'MEMBER',
+          };
+        } catch {
+          return {
+            id,
+            name: id === group.creatorId ? group.creatorName : 'Thành viên',
+            avatar: id === group.creatorId ? group.creatorAvatar : '',
+            role: id === group.creatorId ? 'CREATOR' : 'MEMBER',
+          };
+        }
+      }),
+    );
+    return members;
   }
 
   /** Lấy danh sách bài viết trong nhóm */
