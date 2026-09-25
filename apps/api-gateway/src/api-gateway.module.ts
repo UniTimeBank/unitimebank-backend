@@ -12,6 +12,7 @@ import { NotificationClient } from './clients/notification.client';
 import { NotificationGateway } from './gateways/notification.gateway';
 import { SessionGateway } from './gateways/session.gateway';
 import { BookingGateway } from './gateways/booking.gateway';
+import { CommunityGateway } from './gateways/community.gateway';
 import { AuthRoutes } from './routes/auth.routes';
 import { UserRoutes, UserAvatarRoutes, UserFollowRoutes, UserCheckinRoutes, UserSkillRoutes, SkillCategoryRoutes, UserScheduleRoutes } from './routes/user.routes';
 import { PostMentorRoutes, PostLearnerRoutes, PostSearchRoutes, CommunityGroupRoutes } from './routes/post.routes';
@@ -69,6 +70,7 @@ import { UploadRoutes } from './routes/upload.routes';
     NotificationGateway,
     SessionGateway,
     BookingGateway,
+    CommunityGateway,
   ],
 })
 export class ApiGatewayModule {}

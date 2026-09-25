@@ -93,12 +93,28 @@ export interface CommunityGroupResponseDto {
   creatorName: string;
   creatorAvatar: string;
   memberIds?: string[];
+  bannedUserIds?: string[];
   membersCount: number;
   postsCount: number;
   rules: string[];
   isJoined?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface GroupMemberDto {
+  id: string;
+  name: string;
+  avatar: string;
+  email?: string;
+  role: 'CREATOR' | 'MEMBER';
+}
+
+export interface BannedMemberDto {
+  id: string;
+  name: string;
+  avatar: string;
+  email?: string;
 }
 
 export interface GroupPostResponseDto {
@@ -131,3 +147,4 @@ export interface GroupCommentResponseDto {
   content: string;
   createdAt: string;
 }
+

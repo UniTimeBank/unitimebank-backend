@@ -770,6 +770,10 @@ export class PostService implements OnModuleInit {
       throw new NotFoundException('Group not found');
     }
 
+    if (group.bannedUserIds && group.bannedUserIds.includes(userId)) {
+      throw new ForbiddenException('Bạn đã bị cấm tham gia nhóm học tập này.');
+    }
+
     if (!group.memberIds.includes(userId)) {
       group.memberIds.push(userId);
       group.membersCount = group.memberIds.length;
@@ -800,6 +804,111 @@ export class PostService implements OnModuleInit {
     await group.save();
 
     return this.mapGroupToDto(group, userId);
+  }
+
+  /** Đuổi thành viên ra khỏi nhóm (Kick Member) */
+  async kickMember(
+    groupId: string,
+    creatorId: string,
+    targetUserId: string,
+  ): Promise<CommunityGroupResponseDto> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    if (group.creatorId !== creatorId) {
+      throw new ForbiddenException('Chỉ trưởng nhóm mới có quyền đuổi thành viên');
+    }
+
+    if (group.creatorId === targetUserId) {
+      throw new BadRequestException('Không thể đuổi chính trưởng nhóm');
+    }
+
+    group.memberIds = (group.memberIds || []).filter((id) => id !== targetUserId);
+    group.membersCount = Math.max(1, group.memberIds.length);
+    await group.save();
+
+    return this.mapGroupToDto(group, creatorId);
+  }
+
+  /** Cấm thành viên tham gia nhóm (Ban Member) */
+  async banMember(
+    groupId: string,
+    creatorId: string,
+    targetUserId: string,
+  ): Promise<CommunityGroupResponseDto> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    if (group.creatorId !== creatorId) {
+      throw new ForbiddenException('Chỉ trưởng nhóm mới có quyền cấm thành viên');
+    }
+
+    if (group.creatorId === targetUserId) {
+      throw new BadRequestException('Không thể cấm chính trưởng nhóm');
+    }
+
+    group.memberIds = (group.memberIds || []).filter((id) => id !== targetUserId);
+    const bannedSet = new Set(group.bannedUserIds || []);
+    bannedSet.add(targetUserId);
+    group.bannedUserIds = Array.from(bannedSet);
+    group.membersCount = Math.max(1, group.memberIds.length);
+    await group.save();
+
+    return this.mapGroupToDto(group, creatorId);
+  }
+
+  /** Bỏ cấm thành viên trong nhóm (Unban Member) */
+  async unbanMember(
+    groupId: string,
+    creatorId: string,
+    targetUserId: string,
+  ): Promise<CommunityGroupResponseDto> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    if (group.creatorId !== creatorId) {
+      throw new ForbiddenException('Chỉ trưởng nhóm mới có quyền bỏ cấm thành viên');
+    }
+
+    group.bannedUserIds = (group.bannedUserIds || []).filter((id) => id !== targetUserId);
+    await group.save();
+
+    return this.mapGroupToDto(group, creatorId);
+  }
+
+  /** Lấy danh sách ID các thành viên bị cấm */
+  async getBannedMemberIds(
+    groupId: string,
+    userId: string,
+  ): Promise<string[]> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new BadRequestException('Invalid Group ID');
+    }
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    if (group.creatorId !== userId) {
+      throw new ForbiddenException('Chỉ trưởng nhóm mới có quyền xem danh sách bị cấm');
+    }
+
+    return group.bannedUserIds || [];
   }
 
   /** Chuyển quyền trưởng nhóm (Transfer Ownership) */
@@ -1100,6 +1209,7 @@ export class PostService implements OnModuleInit {
 
   private mapGroupToDto(doc: any, currentUserId?: string): CommunityGroupResponseDto {
     const memberIds = doc.memberIds || [];
+    const bannedUserIds = doc.bannedUserIds || [];
     return {
       _id: doc._id.toString(),
       name: doc.name,
@@ -1111,6 +1221,7 @@ export class PostService implements OnModuleInit {
       creatorName: doc.creatorName,
       creatorAvatar: doc.creatorAvatar,
       memberIds: memberIds,
+      bannedUserIds: bannedUserIds,
       membersCount: doc.membersCount ?? memberIds.length,
       postsCount: doc.postsCount ?? 0,
       rules: doc.rules || [],

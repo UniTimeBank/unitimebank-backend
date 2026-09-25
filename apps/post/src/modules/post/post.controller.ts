@@ -165,6 +165,34 @@ export class PostController {
     );
   }
 
+  @MessagePattern('post.group.kickMember')
+  async kickMember(
+    @Payload() data: { groupId: string; creatorId: string; targetUserId: string },
+  ) {
+    return this.postService.kickMember(data.groupId, data.creatorId, data.targetUserId);
+  }
+
+  @MessagePattern('post.group.banMember')
+  async banMember(
+    @Payload() data: { groupId: string; creatorId: string; targetUserId: string },
+  ) {
+    return this.postService.banMember(data.groupId, data.creatorId, data.targetUserId);
+  }
+
+  @MessagePattern('post.group.unbanMember')
+  async unbanMember(
+    @Payload() data: { groupId: string; creatorId: string; targetUserId: string },
+  ) {
+    return this.postService.unbanMember(data.groupId, data.creatorId, data.targetUserId);
+  }
+
+  @MessagePattern('post.group.getBannedMemberIds')
+  async getBannedMemberIds(
+    @Payload() data: { groupId: string; userId: string },
+  ) {
+    return this.postService.getBannedMemberIds(data.groupId, data.userId);
+  }
+
   @MessagePattern('post.group.delete')
   async deleteGroup(@Payload() data: { groupId: string; userId: string }) {
     return this.postService.deleteGroup(data.groupId, data.userId);

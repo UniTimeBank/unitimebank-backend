@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '@app/common';
 import { PostClient } from '../clients/post.client';
 import { UserClient } from '../clients/user.client';
 import { SessionClient } from '../clients/session.client';
+import { CommunityGateway } from '../gateways/community.gateway';
 import {
   CreateMentorPostDto,
   UpdateMentorPostDto,
@@ -302,6 +303,7 @@ export class CommunityGroupRoutes {
   constructor(
     private readonly postClient: PostClient,
     private readonly userClient: UserClient,
+    private readonly communityGateway: CommunityGateway,
   ) {}
 
   private extractUserIdFromReq(req: any): string | undefined {
@@ -364,7 +366,9 @@ export class CommunityGroupRoutes {
         avatar: req.user?.avatarUrl || '',
       };
     }
-    return this.postClient.createGroup(creatorId, dto, userSnapshot);
+    const created = await this.postClient.createGroup(creatorId, dto, userSnapshot);
+    this.communityGateway.broadcast('group:created', created);
+    return created;
   }
 
   /** Lấy chi tiết nhóm theo ID */
@@ -382,7 +386,9 @@ export class CommunityGroupRoutes {
   @ApiOperation({ summary: 'Tham gia vào nhóm học tập' })
   async joinGroup(@Param('groupId') groupId: string, @Req() req: any) {
     const userId = req.user?.id || req.user?.sub;
-    return this.postClient.joinGroup(groupId, userId);
+    const res = await this.postClient.joinGroup(groupId, userId);
+    this.communityGateway.emitToGroup(groupId, 'group:member_joined', { groupId, userId });
+    return res;
   }
 
   /** Rời nhóm */
@@ -392,7 +398,9 @@ export class CommunityGroupRoutes {
   @ApiOperation({ summary: 'Rời khỏi nhóm học tập' })
   async leaveGroup(@Param('groupId') groupId: string, @Req() req: any) {
     const userId = req.user?.id || req.user?.sub;
-    return this.postClient.leaveGroup(groupId, userId);
+    const res = await this.postClient.leaveGroup(groupId, userId);
+    this.communityGateway.emitToGroup(groupId, 'group:member_left', { groupId, userId });
+    return res;
   }
 
   /** Chuyển quyền trưởng nhóm */
@@ -419,12 +427,102 @@ export class CommunityGroupRoutes {
         avatar: '',
       };
     }
-    return this.postClient.transferGroupOwnership(
+    const updated = await this.postClient.transferGroupOwnership(
       groupId,
       currentOwnerId,
       dto.newOwnerId,
       newOwnerSnapshot,
     );
+    this.communityGateway.emitToGroup(groupId, 'group:ownership_transferred', {
+      groupId,
+      newOwnerId: dto.newOwnerId,
+      previousOwnerId: currentOwnerId,
+    });
+    return updated;
+  }
+
+  /** Đuổi thành viên khỏi nhóm */
+  @Post(':groupId/members/:targetUserId/kick')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Đuổi thành viên ra khỏi nhóm (chỉ Trưởng nhóm)' })
+  async kickGroupMember(
+    @Param('groupId') groupId: string,
+    @Param('targetUserId') targetUserId: string,
+    @Req() req: any,
+  ) {
+    const creatorId = req.user?.id || req.user?.sub;
+    const result = await this.postClient.kickGroupMember(groupId, creatorId, targetUserId);
+    this.communityGateway.emitToGroup(groupId, 'group:member_kicked', { groupId, userId: targetUserId });
+    this.communityGateway.sendToUser(targetUserId, 'group:you_were_kicked', { groupId });
+    return result;
+  }
+
+  /** Cấm thành viên tham gia nhóm (Ban) */
+  @Post(':groupId/members/:targetUserId/ban')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cấm người dùng tham gia nhóm (chỉ Trưởng nhóm)' })
+  async banGroupMember(
+    @Param('groupId') groupId: string,
+    @Param('targetUserId') targetUserId: string,
+    @Req() req: any,
+  ) {
+    const creatorId = req.user?.id || req.user?.sub;
+    const result = await this.postClient.banGroupMember(groupId, creatorId, targetUserId);
+    this.communityGateway.emitToGroup(groupId, 'group:member_banned', { groupId, userId: targetUserId });
+    this.communityGateway.sendToUser(targetUserId, 'group:you_were_banned', { groupId });
+    return result;
+  }
+
+  /** Bỏ cấm thành viên trong nhóm (Unban) */
+  @Post(':groupId/members/:targetUserId/unban')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Bỏ cấm người dùng trong nhóm (chỉ Trưởng nhóm)' })
+  async unbanGroupMember(
+    @Param('groupId') groupId: string,
+    @Param('targetUserId') targetUserId: string,
+    @Req() req: any,
+  ) {
+    const creatorId = req.user?.id || req.user?.sub;
+    const result = await this.postClient.unbanGroupMember(groupId, creatorId, targetUserId);
+    this.communityGateway.emitToGroup(groupId, 'group:member_unbanned', { groupId, userId: targetUserId });
+    return result;
+  }
+
+  /** Lấy danh sách thành viên bị cấm */
+  @Get(':groupId/banned-members')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy danh sách người dùng bị cấm (chỉ Trưởng nhóm)' })
+  async getBannedMembers(@Param('groupId') groupId: string, @Req() req: any) {
+    const userId = req.user?.id || req.user?.sub;
+    const bannedIds = await this.postClient.getBannedGroupMemberIds(groupId, userId);
+    if (!Array.isArray(bannedIds)) {
+      return [];
+    }
+    const bannedUsers = await Promise.all(
+      bannedIds.map(async (id: string) => {
+        try {
+          const profile = await this.userClient.getPublicProfile(id);
+          return {
+            id,
+            name: profile?.displayName || profile?.fullName || 'Người dùng',
+            avatar: profile?.avatarUrl || '',
+            email: profile?.email || '',
+          };
+        } catch {
+          return {
+            id,
+            name: 'Người dùng',
+            avatar: '',
+            email: '',
+          };
+        }
+      }),
+    );
+    return bannedUsers;
   }
 
   /** Giải tán nhóm */
@@ -434,7 +532,9 @@ export class CommunityGroupRoutes {
   @ApiOperation({ summary: 'Giải tán nhóm học tập (chỉ Trưởng nhóm)' })
   async deleteGroup(@Param('groupId') groupId: string, @Req() req: any) {
     const userId = req.user?.id || req.user?.sub;
-    return this.postClient.deleteGroup(groupId, userId);
+    const result = await this.postClient.deleteGroup(groupId, userId);
+    this.communityGateway.emitToGroup(groupId, 'group:disbanded', { groupId });
+    return result;
   }
 
   /** Lấy danh sách thành viên nhóm */
@@ -515,7 +615,9 @@ export class CommunityGroupRoutes {
         headline: 'Sinh viên UniTime',
       };
     }
-    return this.postClient.createGroupPost(groupId, authorId, dto, userSnapshot);
+    const createdPost = await this.postClient.createGroupPost(groupId, authorId, dto, userSnapshot);
+    this.communityGateway.emitToGroup(groupId, 'group:post_created', createdPost);
+    return createdPost;
   }
 
   /** Thích / Bỏ thích bài viết trong nhóm */
@@ -529,7 +631,15 @@ export class CommunityGroupRoutes {
     @Req() req: any,
   ) {
     const userId = req.user?.id || req.user?.sub;
-    return this.postClient.toggleLikeGroupPost(groupId, postId, userId);
+    const result = await this.postClient.toggleLikeGroupPost(groupId, postId, userId);
+    this.communityGateway.emitToGroup(groupId, 'group:post_liked', {
+      postId,
+      groupId,
+      userId,
+      isLiked: result.isLiked,
+      likesCount: result.likesCount,
+    });
+    return result;
   }
 
   /** Xóa bài viết trong nhóm */
@@ -543,7 +653,9 @@ export class CommunityGroupRoutes {
     @Req() req: any,
   ) {
     const userId = req.user?.id || req.user?.sub;
-    return this.postClient.deleteGroupPost(groupId, postId, userId);
+    const res = await this.postClient.deleteGroupPost(groupId, postId, userId);
+    this.communityGateway.emitToGroup(groupId, 'group:post_deleted', { postId, groupId });
+    return res;
   }
 
   /** Lấy danh sách bình luận của bài viết */
@@ -585,7 +697,9 @@ export class CommunityGroupRoutes {
         avatar: req.user?.avatarUrl || '',
       };
     }
-    return this.postClient.createGroupComment(groupId, postId, authorId, dto, userSnapshot);
+    const comment = await this.postClient.createGroupComment(groupId, postId, authorId, dto, userSnapshot);
+    this.communityGateway.emitToGroup(groupId, 'group:comment_created', { comment, postId, groupId });
+    return comment;
   }
 
   /** Xóa bình luận */
@@ -594,10 +708,15 @@ export class CommunityGroupRoutes {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Xóa bình luận của chính mình' })
   async deleteGroupComment(
+    @Param('groupId') groupId: string,
+    @Param('postId') postId: string,
     @Param('commentId') commentId: string,
     @Req() req: any,
   ) {
     const userId = req.user?.id || req.user?.sub;
-    return this.postClient.deleteGroupComment(commentId, userId);
+    const res = await this.postClient.deleteGroupComment(commentId, userId);
+    this.communityGateway.emitToGroup(groupId, 'group:comment_deleted', { commentId, postId, groupId });
+    return res;
   }
 }
+

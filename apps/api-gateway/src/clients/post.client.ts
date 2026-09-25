@@ -146,6 +146,22 @@ export class PostClient {
     });
   }
 
+  kickGroupMember(groupId: string, creatorId: string, targetUserId: string): Promise<any> {
+    return this.send('post.group.kickMember', { groupId, creatorId, targetUserId });
+  }
+
+  banGroupMember(groupId: string, creatorId: string, targetUserId: string): Promise<any> {
+    return this.send('post.group.banMember', { groupId, creatorId, targetUserId });
+  }
+
+  unbanGroupMember(groupId: string, creatorId: string, targetUserId: string): Promise<any> {
+    return this.send('post.group.unbanMember', { groupId, creatorId, targetUserId });
+  }
+
+  getBannedGroupMemberIds(groupId: string, userId: string): Promise<string[]> {
+    return this.send('post.group.getBannedMemberIds', { groupId, userId });
+  }
+
   deleteGroup(groupId: string, userId: string): Promise<any> {
     return this.send('post.group.delete', { groupId, userId });
   }

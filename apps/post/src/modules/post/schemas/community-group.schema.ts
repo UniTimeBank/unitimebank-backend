@@ -32,6 +32,9 @@ export class CommunityGroup {
   @Prop({ type: [String], default: [] })
   memberIds: string[];
 
+  @Prop({ type: [String], default: [] })
+  bannedUserIds: string[];
+
   @Prop({ default: 1 })
   membersCount: number;
 
