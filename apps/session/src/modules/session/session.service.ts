@@ -1865,7 +1865,8 @@ export class SessionService implements OnModuleInit {
         userId: room.mentorId,
         title: 'Phòng học nhóm đã đóng',
         content: 'Phòng học nhóm của bạn đã tự động kết thúc do bạn vắng mặt quá 5 phút.',
-        type: 'SYSTEM',
+        type: 'GROUP_SESSION_CLOSED',
+        sourceEvent: 'GROUP_SESSION_CLOSED',
         referenceId: room.id,
       });
     } catch (nErr) {

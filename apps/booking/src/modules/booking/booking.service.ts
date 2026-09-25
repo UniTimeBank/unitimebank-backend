@@ -47,12 +47,16 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     this.logger.log('BookingService initialized. Running initial checks for pending expirations & reminders...');
     await this.checkAndExpirePendingBookings();
+    await this.checkAndCompletePastConfirmedBookings();
     await this.checkAndSendBookingReminders();
 
     // Định kỳ quét các yêu cầu quá hạn và gửi nhắc nhở mỗi 1 phút
     this.expirationInterval = setInterval(() => {
       this.checkAndExpirePendingBookings().catch((err) => {
         this.logger.error('Error during scheduled checkAndExpirePendingBookings sweep:', err);
+      });
+      this.checkAndCompletePastConfirmedBookings().catch((err) => {
+        this.logger.error('Error during scheduled checkAndCompletePastConfirmedBookings sweep:', err);
       });
       this.checkAndSendBookingReminders().catch((err) => {
         this.logger.error('Error during scheduled checkAndSendBookingReminders sweep:', err);
@@ -164,6 +168,61 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
       return expiredCount;
     } catch (err) {
       this.logger.error('Error during checkAndExpirePendingBookings:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Tự động quét và hoàn tất các buổi học CONFIRMED đã quá giờ kết thúc (scheduledEnd)
+   */
+  async checkAndCompletePastConfirmedBookings(specificBookingId?: string): Promise<number> {
+    try {
+      const now = new Date();
+      const qb = this.bookingRepo
+        .createQueryBuilder('booking')
+        .where('booking.status IN (:...statuses)', {
+          statuses: [BookingStatus.CONFIRMED, BookingStatus.STARTED],
+        })
+        .andWhere('booking.scheduledEnd <= :now', { now });
+
+      if (specificBookingId) {
+        qb.andWhere('booking.id = :specificBookingId', { specificBookingId });
+      }
+
+      const pastConfirmedList = await qb.getMany();
+      if (!pastConfirmedList.length) return 0;
+
+      let completedCount = 0;
+      for (const booking of pastConfirmedList) {
+        this.logger.log(`Auto-completing past booking ${booking.id} (Scheduled end was: ${booking.scheduledEnd})`);
+
+        // Giải phóng khoản ký quỹ cho mentor nếu có
+        if (booking.totalCreditEscrowed > 0) {
+          try {
+            await firstValueFrom(
+              this.walletClient
+                .send('wallet.releaseEscrow', {
+                  bookingId: booking.id,
+                  learnerId: booking.learnerId,
+                  mentorId: booking.mentorId,
+                  creditsTransferred: booking.totalCreditEscrowed,
+                })
+                .pipe(timeout(7000)),
+            );
+          } catch (err) {
+            this.logger.warn(`Failed to release escrow for auto-completed booking ${booking.id}:`, err);
+          }
+        }
+
+        booking.status = BookingStatus.COMPLETED;
+        booking.completedAt = now;
+        await this.bookingRepo.save(booking);
+        completedCount++;
+      }
+
+      return completedCount;
+    } catch (err) {
+      this.logger.error('Error during checkAndCompletePastConfirmedBookings:', err);
       return 0;
     }
   }
@@ -609,8 +668,9 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
    * Lấy danh sách booking của user (Vai trò Learner hoặc Mentor)
    */
   async getMyBookings(userId: string, query: GetBookingsQueryDto) {
-    // 0. Quét kiểm tra và hết hạn realtime các booking quá hạn
+    // 0. Quét kiểm tra và hết hạn realtime các booking quá hạn / hoàn tất booking quá khứ
     await this.checkAndExpirePendingBookings();
+    await this.checkAndCompletePastConfirmedBookings();
 
     const qb = this.bookingRepo.createQueryBuilder('booking');
 
