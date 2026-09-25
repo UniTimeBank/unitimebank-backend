@@ -23,6 +23,12 @@ export class PostSessionRating {
   @Column({ name: 'mentor_id' })
   mentorId: string;
 
+  @Column({ name: 'mentor_name', nullable: true })
+  mentorName?: string;
+
+  @Column({ name: 'mentor_avatar', nullable: true })
+  mentorAvatar?: string;
+
   @Column()
   stars: number;
 

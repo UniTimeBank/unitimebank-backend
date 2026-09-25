@@ -77,6 +77,8 @@ export class ModerationService implements OnModuleInit {
           ALTER TABLE IF EXISTS "post_session_rating" ALTER COLUMN "submitted_at" TYPE timestamptz USING "submitted_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "post_session_rating" ADD COLUMN IF NOT EXISTS "room_id" VARCHAR;
           ALTER TABLE IF EXISTS "post_session_rating" ADD COLUMN IF NOT EXISTS "session_type" VARCHAR DEFAULT 'ONE_ON_ONE';
+          ALTER TABLE IF EXISTS "post_session_rating" ADD COLUMN IF NOT EXISTS "mentor_name" VARCHAR;
+          ALTER TABLE IF EXISTS "post_session_rating" ADD COLUMN IF NOT EXISTS "mentor_avatar" VARCHAR;
           ALTER TABLE IF EXISTS "post_session_rating" ALTER COLUMN "booking_id" DROP NOT NULL;
           ALTER TABLE IF EXISTS "trust_score_change" ALTER COLUMN "occurred_at" TYPE timestamptz USING "occurred_at" AT TIME ZONE 'UTC';
           ALTER TABLE IF EXISTS "account_moderation_action" ALTER COLUMN "occurred_at" TYPE timestamptz USING "occurred_at" AT TIME ZONE 'UTC';
@@ -107,19 +109,30 @@ export class ModerationService implements OnModuleInit {
   // ==================== RATINGS & REVIEWS ====================
 
   private async getUserSnapshot(userId: string): Promise<{ name: string; avatar: string }> {
-    try {
-      const userUrl = process.env.USER_SERVICE_URL || 'http://127.0.0.1:3002';
-      const res = await fetch(`${userUrl}/users/${userId}`);
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          name: data.displayName || data.fullName || data.name || 'Thành viên',
-          avatar: data.avatarUrl || data.avatar || '',
-        };
-      }
-    } catch (err) {
-      this.logger.debug(`Could not fetch user snapshot for ${userId}:`, err);
+    if (!userId) return { name: 'Thành viên', avatar: '' };
+
+    const urls = [
+      process.env.USER_SERVICE_URL,
+      'http://127.0.0.1:3002',
+      'http://localhost:3002',
+    ].filter(Boolean) as string[];
+
+    for (const base of urls) {
+      try {
+        const res = await fetch(`${base}/users/${userId}`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const name = data.displayName || data.fullName || data.name;
+          const avatar = data.avatarUrl || data.avatar || '';
+          if (name && name !== 'Thành viên' && name !== 'Học viên UniTime') {
+            return { name, avatar };
+          }
+        }
+      } catch {}
     }
+
     return { name: 'Thành viên', avatar: '' };
   }
 
@@ -195,6 +208,19 @@ export class ModerationService implements OnModuleInit {
       });
     }
 
+    let mentorName = dto.mentorName?.trim();
+    let mentorAvatar = dto.mentorAvatar?.trim();
+
+    if (!mentorName || mentorName === 'Người hướng dẫn' || mentorName === 'Mentor' || mentorName === 'Thành viên') {
+      if (targetUserId) {
+        const snapshot = await this.getUserSnapshot(targetUserId);
+        if (snapshot.name && snapshot.name !== 'Thành viên') {
+          mentorName = snapshot.name;
+          mentorAvatar = snapshot.avatar || mentorAvatar;
+        }
+      }
+    }
+
     // Tạo đánh giá mới (mỗi học viên chỉ được đánh giá 1 lần duy nhất)
       const rating = this.ratingRepo.create({
         bookingId: dto.bookingId,
@@ -203,6 +229,8 @@ export class ModerationService implements OnModuleInit {
         sessionId: dto.sessionId || dto.bookingId || dto.roomId,
         learnerId: reviewerId,
         mentorId: targetUserId,
+        mentorName,
+        mentorAvatar,
         stars,
         comment: dto.comment?.trim() || undefined,
         reviewerName,
@@ -230,6 +258,8 @@ export class ModerationService implements OnModuleInit {
       bookingId: savedRating.bookingId,
       learnerId: savedRating.learnerId,
       mentorId: savedRating.mentorId,
+      mentorName: savedRating.mentorName,
+      mentorAvatar: savedRating.mentorAvatar,
       stars: savedRating.stars,
       comment: savedRating.comment,
       submittedAt: savedRating.submittedAt,
@@ -243,8 +273,8 @@ export class ModerationService implements OnModuleInit {
         userId: targetUserId,
         title: 'Đánh giá mới từ học viên ⭐',
         message: `${reviewerName || 'Học viên'} vừa gửi đánh giá ${stars} sao cho buổi học của bạn!`,
-        kind: 'BOOKING',
-        metadata: { bookingId: dto.bookingId, ratingId: savedRating.id, stars },
+        kind: 'RATING',
+        metadata: { bookingId: dto.bookingId, roomId: dto.roomId, ratingId: savedRating.id, stars },
       });
     }
 
@@ -321,19 +351,82 @@ export class ModerationService implements OnModuleInit {
   }
 
   async getMyRatedSessionIds(learnerId: string) {
-    return this.ratingRepo.find({
+    const ratings = await this.ratingRepo.find({
       where: { learnerId },
       select: {
         id: true,
         bookingId: true,
         roomId: true,
         sessionType: true,
+        mentorId: true,
+        mentorName: true,
+        mentorAvatar: true,
         stars: true,
         comment: true,
         submittedAt: true,
       },
       order: { submittedAt: 'DESC' },
     });
+
+    const enriched = await Promise.all(
+      ratings.map(async (r) => {
+        let mentorName = r.mentorName;
+        let mentorAvatar = r.mentorAvatar || '';
+
+        // 1. If missing mentorName/Avatar and bookingId exists, fetch booking info
+        if ((!mentorName || mentorName === 'Người hướng dẫn' || !mentorAvatar) && r.bookingId) {
+          try {
+            const booking = await firstValueFrom(
+              this.bookingClient
+                .send('booking.findById', { id: r.bookingId })
+                .pipe(timeout(3000)),
+            );
+            if (booking) {
+              if (booking.mentorName && booking.mentorName !== 'Mentor' && booking.mentorName !== 'Thành viên') {
+                mentorName = booking.mentorName;
+              }
+              if (booking.mentorAvatar) {
+                mentorAvatar = booking.mentorAvatar;
+              }
+              if (!r.mentorId && booking.mentorId) {
+                r.mentorId = booking.mentorId;
+              }
+            }
+          } catch {}
+        }
+
+        // 2. If still missing, query user snapshot for mentorId
+        if ((!mentorName || mentorName === 'Người hướng dẫn' || mentorName === 'Thành viên') && r.mentorId) {
+          const snapshot = await this.getUserSnapshot(r.mentorId);
+          if (snapshot.name && snapshot.name !== 'Thành viên') {
+            mentorName = snapshot.name;
+          }
+          if (snapshot.avatar) {
+            mentorAvatar = snapshot.avatar;
+          }
+        }
+
+        // Save back if updated
+        if (
+          (mentorName && mentorName !== r.mentorName && mentorName !== 'Người hướng dẫn' && mentorName !== 'Thành viên') ||
+          (mentorAvatar && mentorAvatar !== r.mentorAvatar)
+        ) {
+          this.ratingRepo.update(r.id, {
+            mentorName,
+            mentorAvatar,
+            mentorId: r.mentorId,
+          }).catch(() => {});
+        }
+
+        return {
+          ...r,
+          mentorName: mentorName || 'Người hướng dẫn',
+          mentorAvatar: mentorAvatar || '',
+        };
+      }),
+    );
+
+    return enriched;
   }
 
   // ==================== TRUST SCORE ====================

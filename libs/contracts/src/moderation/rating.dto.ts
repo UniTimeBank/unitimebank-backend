@@ -27,6 +27,16 @@ export class CreateRatingDto {
   @IsString()
   mentorId: string;
 
+  @ApiPropertyOptional({ description: 'Tên người dạy (Mentor)' })
+  @IsOptional()
+  @IsString()
+  mentorName?: string;
+
+  @ApiPropertyOptional({ description: 'Ảnh đại diện người dạy (Mentor)' })
+  @IsOptional()
+  @IsString()
+  mentorAvatar?: string;
+
   @ApiPropertyOptional({ description: 'ID của học viên (Learner)' })
   @IsOptional()
   @IsString()
