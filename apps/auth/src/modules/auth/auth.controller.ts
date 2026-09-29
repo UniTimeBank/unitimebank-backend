@@ -71,6 +71,12 @@ export class AuthController {
     return this.authService.changePassword(body.userId, body.oldPassword, body.newPassword);
   }
 
+  // Lấy trạng thái bảo mật tài khoản
+  @Get('security-status/:userId')
+  async getSecurityStatus(@Param('userId') userId: string) {
+    return this.authService.getSecurityStatus(userId);
+  }
+
   // ========== TOKEN ==========
 
   @Post('refresh')

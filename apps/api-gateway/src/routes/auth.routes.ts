@@ -67,6 +67,13 @@ export class AuthRoutes {
     return this.authClient.changePassword(dto);
   }
 
+  /** Lấy trạng thái bảo mật tài khoản */
+  @Get('security-status/:userId')
+  @ApiOperation({ summary: 'Lấy trạng thái bảo mật tài khoản' })
+  async getSecurityStatus(@Param('userId') userId: string) {
+    return this.authClient.getSecurityStatus(userId);
+  }
+
   // ========== QUÊN MẬT KHẨU ==========
 
   @Post('forgot-password')

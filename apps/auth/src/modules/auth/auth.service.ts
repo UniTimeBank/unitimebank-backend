@@ -292,6 +292,7 @@ export class AuthService implements OnModuleInit {
         role: Role.USER,
         status: AccountStatus.ACTIVE,
         trustScore: 50,
+        hasPassword: false,
       });
       await this.userAccountRepo.save(userAccount);
 
@@ -364,6 +365,7 @@ export class AuthService implements OnModuleInit {
 
     const passwordHash = await bcrypt.hash(dto.newPassword, 12);
     userAccount.passwordHash = passwordHash;
+    userAccount.hasPassword = true;
     await this.userAccountRepo.save(userAccount);
 
     return {
@@ -400,10 +402,36 @@ export class AuthService implements OnModuleInit {
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
     userAccount.passwordHash = passwordHash;
+    userAccount.hasPassword = true;
     await this.userAccountRepo.save(userAccount);
 
     return {
       message: 'Đổi mật khẩu thành công.',
+    };
+  }
+
+  // Lấy trạng thái bảo mật của tài khoản
+  async getSecurityStatus(userId: string) {
+    const userAccount = await this.userAccountRepo.findOne({
+      where: { id: userId },
+    });
+    if (!userAccount) {
+      throw new NotFoundException('Không tìm thấy tài khoản người dùng');
+    }
+
+    const oauthCreds = await this.oauthCredentialRepo.find({
+      where: { userId },
+    });
+    const hasGoogleLinked = oauthCreds.some((c) => c.provider === 'google');
+    const hasPassword = userAccount.hasPassword !== false;
+
+    return {
+      userId: userAccount.id,
+      email: userAccount.email,
+      hasPassword,
+      hasGoogleLinked,
+      role: userAccount.role,
+      status: userAccount.status,
     };
   }
 

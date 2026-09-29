@@ -30,6 +30,9 @@ export class UserAccount {
   @Column({ name: 'trust_score', default: 100 })
   trustScore: number;
 
+  @Column({ name: 'has_password', type: 'boolean', default: true, nullable: true })
+  hasPassword?: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

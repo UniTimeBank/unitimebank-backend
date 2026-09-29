@@ -58,6 +58,10 @@ export class AuthClient {
     return this.request('POST', '/auth/change-password', data);
   }
 
+  async getSecurityStatus(userId: string) {
+    return this.request('GET', `/auth/security-status/${userId}`);
+  }
+
   // ========== QUÊN MẬT KHẨU ==========
   async forgotPassword(email: string) {
     return this.request('POST', '/auth/forgot-password', { email });
