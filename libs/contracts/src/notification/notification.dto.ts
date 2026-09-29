@@ -17,6 +17,7 @@ export interface NotificationItemDto {
 }
 
 export interface GetMyNotificationsQueryDto {
+  page?: number;
   limit?: number;
   unreadOnly?: boolean;
 }

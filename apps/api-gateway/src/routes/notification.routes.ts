@@ -64,10 +64,12 @@ export class NotificationRoutes {
   @ApiOperation({ summary: 'Lấy danh sách thông báo của người dùng đăng nhập' })
   getMyNotifications(
     @Req() req: any,
+    @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('unreadOnly') unreadOnly?: string,
   ) {
     return this.notificationClient.getMyNotifications(req.user.id, {
+      page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 20,
       unreadOnly: unreadOnly === 'true',
     });

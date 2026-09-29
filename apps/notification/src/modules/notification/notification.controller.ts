@@ -19,6 +19,7 @@ export class NotificationController {
   @ApiOperation({ summary: 'Lấy danh sách thông báo của tôi' })
   async getMyNotifications(
     @Req() req: any,
+    @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('unreadOnly') unreadOnly?: string,
   ) {
@@ -26,6 +27,7 @@ export class NotificationController {
       req.user.id,
       limit ? Number(limit) : 20,
       unreadOnly === 'true',
+      page ? Number(page) : 1,
     );
   }
 
@@ -67,12 +69,13 @@ export class NotificationController {
 
   @MessagePattern('notification.getMyNotifications')
   async handleGetMyNotifications(
-    @Payload() data: { userId: string; limit?: number; unreadOnly?: boolean },
+    @Payload() data: { userId: string; page?: number; limit?: number; unreadOnly?: boolean },
   ) {
     return this.notificationService.getMyNotifications(
       data.userId,
       data.limit ? Number(data.limit) : 20,
       Boolean(data.unreadOnly),
+      data.page ? Number(data.page) : 1,
     );
   }
 

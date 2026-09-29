@@ -100,17 +100,22 @@ export class NotificationService {
     recipientId: string,
     limit = 20,
     unreadOnly = false,
+    page = 1,
   ): Promise<GetMyNotificationsResponseDto> {
     const whereCondition: any = { recipientId };
     if (unreadOnly) {
       whereCondition.isRead = false;
     }
 
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.max(1, limit);
+
     const [items, total] = await this.inboxRepo.findAndCount({
       where: whereCondition,
       relations: { notification: true },
       order: { createdAt: 'DESC' },
-      take: limit,
+      skip: (safePage - 1) * safeLimit,
+      take: safeLimit,
     });
 
     const unreadCount = await this.inboxRepo.count({

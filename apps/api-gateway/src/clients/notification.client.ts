@@ -32,10 +32,11 @@ export class NotificationClient {
 
   async getMyNotifications(
     userId: string,
-    query: { limit?: number; unreadOnly?: boolean },
+    query: { page?: number; limit?: number; unreadOnly?: boolean },
   ): Promise<GetMyNotificationsResponseDto> {
     return this.send<GetMyNotificationsResponseDto>('notification.getMyNotifications', {
       userId,
+      page: query.page,
       limit: query.limit,
       unreadOnly: query.unreadOnly,
     });
