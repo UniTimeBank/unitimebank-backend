@@ -138,7 +138,12 @@ export class UserRoutes {
   @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
   async getMyProfile(@Req() req: any) {
     const headers = { Authorization: req.headers.authorization };
-    return this.userClient.getMyProfile(headers);
+    const profile = await this.userClient.getMyProfile(headers);
+    return {
+      ...profile,
+      email: profile?.email || req.user?.email,
+      role: profile?.role || req.user?.role,
+    };
   }
 
   /** Lấy danh sách 4 nhiệm vụ nhận Credit */

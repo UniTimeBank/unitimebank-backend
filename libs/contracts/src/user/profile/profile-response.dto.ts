@@ -18,6 +18,18 @@ export class GetUserProfileResponseDto {
   avatarUrl: string | null;
 
   @ApiPropertyOptional({
+    example: 'user@example.com',
+    description: 'Email của người dùng',
+  })
+  email?: string;
+
+  @ApiPropertyOptional({
+    example: 'USER',
+    description: 'Vai trò của người dùng',
+  })
+  role?: string;
+
+  @ApiPropertyOptional({
     example: 'Sinh viên CNTT',
     description: 'Tiểu sử',
   })
