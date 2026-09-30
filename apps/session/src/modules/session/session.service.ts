@@ -947,6 +947,16 @@ export class SessionService implements OnModuleInit {
 
     const leftAt = new Date();
     const room = await this.roomRepo.findOne({ where: { id: roomId } });
+
+    // Cập nhật thời gian học thực tế tối thiểu từ lúc vào (joinedAt) đến lúc rời (leftAt)
+    if (participant.joinedAt) {
+      const elapsed = Math.max(
+        0,
+        Math.floor((leftAt.getTime() - new Date(participant.joinedAt).getTime()) / 1000),
+      );
+      participant.activeSeconds = Math.max(participant.activeSeconds || 0, elapsed);
+    }
+
     if (
       room?.roomType === RoomType.GROUP &&
       participant.role === ParticipantRole.LEARNER &&
@@ -1094,6 +1104,16 @@ export class SessionService implements OnModuleInit {
       let activeSecs = p.activeSeconds || 0;
       let effectiveStatus = p.connectionStatus;
 
+      // Đảm bảo activeSecs tối thiểu bằng khoảng thời gian tham gia thực tế (joinedAt -> leftAt/now)
+      if (p.joinedAt) {
+        const endTime = p.leftAt ? new Date(p.leftAt).getTime() : now.getTime();
+        const durationSecs = Math.max(
+          0,
+          Math.floor((endTime - new Date(p.joinedAt).getTime()) / 1000),
+        );
+        activeSecs = Math.max(activeSecs, durationSecs);
+      }
+
       // Kiểm tra nhịp tim (liveness check): nếu quá 35s không gửi heartbeat thì coi là DISCONNECTED
       if (p.connectionStatus === ConnectionStatus.ONLINE) {
         const lastActivity = p.lastHeartbeatAt
@@ -1146,31 +1166,7 @@ export class SessionService implements OnModuleInit {
       }
     }
 
-    // Chỉ giữ lại những học viên THỰC TẾ:
-    // Đang ONLINE hoặc đã có thời gian học thực tế (>0s) hoặc có đóng góp Credit (>0).
-    // Tuyệt đối loại bỏ các bản ghi rác/vãng lai (0s, 0 credit, đã ngắt kết nối).
-    const actualLearners = learners.filter(
-      (l) =>
-        l.connectionStatus === ConnectionStatus.ONLINE ||
-        l.activeSeconds > 0 ||
-        l.creditsContributed > 0,
-    );
-
-    // Đồng thời dọn dẹp các bản ghi rác này trong database để không để lại vết
-    const ghostParticipants = dedupedParticipants.filter(
-      (p) =>
-        p.connectionStatus !== ConnectionStatus.ONLINE &&
-        (p.activeSeconds || 0) === 0 &&
-        (p.creditCharged || 0) === 0,
-    );
-    if (ghostParticipants.length > 0) {
-      const ghostIds = ghostParticipants.map((g) => g.id);
-      this.participantRepo.delete(ghostIds).catch((err) => {
-        this.logger.warn(`Failed to clean up ghost participants:`, err);
-      });
-    }
-
-    const totalPoolCredits = actualLearners.reduce((sum, l) => sum + l.creditsContributed, 0);
+    const totalPoolCredits = learners.reduce((sum, l) => sum + l.creditsContributed, 0);
 
     return {
       roomId: room.id,
@@ -1179,11 +1175,11 @@ export class SessionService implements OnModuleInit {
       status: room.status,
       openedAt: room.openedAt || new Date(),
       accumulatedCredits: totalPoolCredits,
-      totalLearnersCount: actualLearners.length,
-      activeLearnersCount: actualLearners.filter(
+      totalLearnersCount: learners.length,
+      activeLearnersCount: learners.filter(
         (l) => l.connectionStatus === ConnectionStatus.ONLINE,
       ).length,
-      learners: actualLearners,
+      learners,
     };
   }
 
@@ -1701,6 +1697,15 @@ export class SessionService implements OnModuleInit {
   }> {
     if (!participant || participant.role !== ParticipantRole.LEARNER) {
       return { creditsCharged: 0 };
+    }
+
+    // Cập nhật thời gian học thực tế tối thiểu từ joinedAt đến now
+    if (participant.joinedAt) {
+      const elapsed = Math.max(
+        0,
+        Math.floor((now.getTime() - new Date(participant.joinedAt).getTime()) / 1000),
+      );
+      participant.activeSeconds = Math.max(participant.activeSeconds || 0, elapsed);
     }
 
     const totalBillableMinutes = Math.floor(
