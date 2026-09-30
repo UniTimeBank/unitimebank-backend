@@ -7,6 +7,7 @@ import {
   NotificationPreference,
   ReminderSchedule,
   EventSubscription,
+  DeviceToken,
 } from './entities';
 import { NotificationService } from './notification.service';
 import { NotificationController } from './notification.controller';
@@ -21,6 +22,7 @@ import { NotificationEventHandler } from './notification-event.handler';
       NotificationPreference,
       ReminderSchedule,
       EventSubscription,
+      DeviceToken,
     ]),
   ],
   controllers: [NotificationController, NotificationEventHandler],

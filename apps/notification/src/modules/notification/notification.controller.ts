@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Query, Req, UseGuards, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Query, Body, Req, UseGuards, Delete } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { JwtAuthGuard } from '@app/common/guards/jwt-auth.guard';
@@ -39,6 +39,21 @@ export class NotificationController {
     return this.notificationService.getUnreadCount(req.user.id);
   }
 
+  @Post('push-token')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Đăng ký Device Push Token (FCM / Expo)' })
+  async savePushToken(
+    @Req() req: any,
+    @Body() body: { token: string; platform?: string },
+  ) {
+    return this.notificationService.savePushToken(
+      req.user.id,
+      body.token,
+      body.platform || 'android',
+    );
+  }
+
   @Patch(':id/read')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -66,6 +81,13 @@ export class NotificationController {
   // ==========================================
   // RabbitMQ MessagePattern RPC Handlers
   // ==========================================
+
+  @MessagePattern('notification.savePushToken')
+  async handleSavePushToken(
+    @Payload() data: { userId: string; token: string; platform?: string },
+  ) {
+    return this.notificationService.savePushToken(data.userId, data.token, data.platform);
+  }
 
   @MessagePattern('notification.getMyNotifications')
   async handleGetMyNotifications(

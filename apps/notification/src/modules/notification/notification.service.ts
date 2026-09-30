@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import {
   Notification,
   NotificationInbox,
+  DeviceToken,
 } from './entities';
 import { NotificationKind } from './enums';
 import type { CreateNotificationEvent } from '@app/contracts/events';
@@ -18,6 +19,8 @@ export class NotificationService {
     private readonly notificationRepo: Repository<Notification>,
     @InjectRepository(NotificationInbox)
     private readonly inboxRepo: Repository<NotificationInbox>,
+    @InjectRepository(DeviceToken)
+    private readonly deviceTokenRepo: Repository<DeviceToken>,
   ) {}
 
   /**
@@ -90,7 +93,107 @@ export class NotificationService {
     await this.inboxRepo.save(inbox);
 
     this.logger.log(`Created notification [${savedNotification.id}] for user [${userId}]`);
+
+    // Gửi thông báo đẩy Remote Push Notification (FCM / Expo) tới thiết bị của người dùng
+    this.sendRemotePush(
+      userId,
+      savedNotification.title,
+      savedNotification.body,
+      {
+        notificationId: savedNotification.id,
+        kind: savedNotification.kind,
+        referenceId: savedNotification.payloadRef,
+        sourceEvent: savedNotification.sourceEvent,
+      },
+    ).catch((err) => {
+      this.logger.warn(`Failed to dispatch remote push: ${err?.message || err}`);
+    });
+
     return savedNotification;
+  }
+
+  /**
+   * Lưu hoặc cập nhật Device Push Token của người dùng
+   */
+  async savePushToken(
+    userId: string,
+    token: string,
+    platform = 'android',
+  ): Promise<{ success: boolean; message: string }> {
+    if (!token || !userId) {
+      return { success: false, message: 'Invalid token or userId' };
+    }
+
+    try {
+      let deviceToken = await this.deviceTokenRepo.findOne({
+        where: { userId, token },
+      });
+
+      if (deviceToken) {
+        deviceToken.isActive = true;
+        deviceToken.platform = platform;
+        await this.deviceTokenRepo.save(deviceToken);
+      } else {
+        deviceToken = this.deviceTokenRepo.create({
+          userId,
+          token,
+          platform,
+          isActive: true,
+        });
+        await this.deviceTokenRepo.save(deviceToken);
+      }
+
+      this.logger.log(`Saved push token for user [${userId}], platform [${platform}]`);
+      return { success: true, message: 'Push token saved successfully' };
+    } catch (err: any) {
+      this.logger.error(`Error saving push token for user [${userId}]: ${err?.message || err}`);
+      return { success: false, message: err?.message || 'Error saving token' };
+    }
+  }
+
+  /**
+   * Bắn thông báo đẩy Remote Push Notification (FCM qua Expo Push Service)
+   */
+  private async sendRemotePush(
+    userId: string,
+    title: string,
+    body: string,
+    data?: any,
+  ): Promise<void> {
+    try {
+      const activeTokens = await this.deviceTokenRepo.find({
+        where: { userId, isActive: true },
+      });
+
+      if (!activeTokens || activeTokens.length === 0) {
+        return;
+      }
+
+      const messages = activeTokens.map((t) => ({
+        to: t.token,
+        sound: 'default',
+        title: title || 'UniTime Notification ⭐',
+        body: body || '',
+        data: data || {},
+        priority: 'high',
+        channelId: 'default',
+      }));
+
+      const res = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Accept-Encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(messages),
+      });
+
+      const responseData = await res.json();
+      this.logger.log(`Dispatched remote push to user [${userId}]: ${JSON.stringify(responseData)}`);
+    } catch (pushErr: any) {
+      this.logger.warn(`Remote push error for user [${userId}]: ${pushErr?.message || pushErr}`);
+    }
   }
 
   /**

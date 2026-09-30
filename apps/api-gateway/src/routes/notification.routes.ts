@@ -1,10 +1,12 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Delete,
   Param,
   Query,
+  Body,
   Req,
   Sse,
   UseGuards,
@@ -56,6 +58,17 @@ export class NotificationRoutes {
           } as MessageEvent),
       ),
     );
+  }
+
+  @Post('push-token')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Đăng ký Device Push Token (FCM / Expo) cho người dùng' })
+  savePushToken(
+    @Req() req: any,
+    @Body() body: { token: string; platform?: string },
+  ) {
+    return this.notificationClient.savePushToken(req.user.id, body.token, body.platform);
   }
 
   @Get('my')

@@ -4,3 +4,4 @@ export * from './notification-inbox.entity';
 export * from './notification-preference.entity';
 export * from './reminder-schedule.entity';
 export * from './event-subscription.entity';
+export * from './device-token.entity';

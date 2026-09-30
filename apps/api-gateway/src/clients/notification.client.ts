@@ -59,4 +59,16 @@ export class NotificationClient {
   async deleteNotification(userId: string, id: string): Promise<{ success: boolean }> {
     return this.send<{ success: boolean }>('notification.delete', { userId, id });
   }
+
+  async savePushToken(
+    userId: string,
+    token: string,
+    platform?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    return this.send<{ success: boolean; message: string }>('notification.savePushToken', {
+      userId,
+      token,
+      platform,
+    });
+  }
 }

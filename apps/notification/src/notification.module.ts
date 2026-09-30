@@ -10,6 +10,7 @@ import {
   NotificationPreference,
   ReminderSchedule,
   EventSubscription,
+  DeviceToken,
 } from './modules/notification/entities';
 
 @Module({
@@ -30,6 +31,7 @@ import {
         NotificationPreference,
         ReminderSchedule,
         EventSubscription,
+        DeviceToken,
       ],
       synchronize: true,
       ssl: process.env.DB_SSL === 'true',
