@@ -153,6 +153,21 @@ export class SessionController {
     }
   }
 
+  @MessagePattern('session.recordParticipantDisconnected')
+  async recordParticipantDisconnected(
+    @Payload() data: { roomId: string; userId: string },
+  ) {
+    try {
+      return await this.sessionService.recordParticipantDisconnected(
+        data.roomId,
+        data.userId,
+      );
+    } catch (err: any) {
+      this.logger.error(`[session.recordParticipantDisconnected] Error:`, err?.stack || err);
+      return { success: false };
+    }
+  }
+
   @MessagePattern('session.meteringTick')
   async handleMeteringTick(
     @Payload() data: { userId: string; roomId: string; activeSeconds: number },

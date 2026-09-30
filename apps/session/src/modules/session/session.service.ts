@@ -245,6 +245,38 @@ export class SessionService implements OnModuleInit {
     return { success: true };
   }
 
+  /**
+   * Ghi nhận thành viên (Learner/Host) ngắt kết nối khỏi phòng học
+   */
+  async recordParticipantDisconnected(roomId: string, userId: string) {
+    const participants = await this.participantRepo.find({
+      where: { roomId, userId },
+    });
+    const leftAt = new Date();
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+
+    for (const participant of participants) {
+      if (participant.connectionStatus === ConnectionStatus.ONLINE) {
+        if (
+          room?.roomType === RoomType.GROUP &&
+          participant.role === ParticipantRole.LEARNER
+        ) {
+          await this.settleGroupParticipantBillingOnExit(room, participant, leftAt);
+        } else {
+          participant.leftAt = leftAt;
+          participant.connectionStatus = ConnectionStatus.DISCONNECTED;
+          participant.lastHeartbeatAt = null;
+          await this.participantRepo.save(participant);
+        }
+        await this.recordConnectionEvent(roomId, participant.id, EventType.DISCONNECTED);
+        this.logger.log(
+          `[recordParticipantDisconnected] Participant ${userId} marked DISCONNECTED from room ${roomId}`,
+        );
+      }
+    }
+    return { success: true };
+  }
+
   // ════════════════════════════════════════════════════════════════
   // 1. PHÒNG HỌC 1:1 (ONE-ON-ONE ROOMS)
   // ════════════════════════════════════════════════════════════════
@@ -997,12 +1029,19 @@ export class SessionService implements OnModuleInit {
     const learners = dedupedParticipants.map((p) => {
       const profile = profilesMap.get(p.userId);
       let activeSecs = p.activeSeconds || 0;
-      if (p.connectionStatus === ConnectionStatus.ONLINE && p.lastHeartbeatAt) {
-        const gap = Math.max(
-          0,
-          Math.floor((now.getTime() - new Date(p.lastHeartbeatAt).getTime()) / 1000),
-        );
-        activeSecs += Math.min(gap, this.GROUP_HEARTBEAT_MAX_GAP_SECONDS);
+      let effectiveStatus = p.connectionStatus;
+
+      // Kiểm tra nhịp tim (liveness check): nếu quá 35s không gửi heartbeat thì coi là DISCONNECTED
+      if (p.connectionStatus === ConnectionStatus.ONLINE) {
+        const lastActivity = p.lastHeartbeatAt
+          ? new Date(p.lastHeartbeatAt).getTime()
+          : new Date(p.joinedAt).getTime();
+        const gap = Math.max(0, Math.floor((now.getTime() - lastActivity) / 1000));
+        if (gap > 35) {
+          effectiveStatus = ConnectionStatus.DISCONNECTED;
+        } else if (p.lastHeartbeatAt) {
+          activeSecs += Math.min(gap, this.GROUP_HEARTBEAT_MAX_GAP_SECONDS);
+        }
       }
 
       const freeRemaining = Math.max(0, this.GROUP_FREE_SECONDS - activeSecs);
@@ -1016,15 +1055,33 @@ export class SessionService implements OnModuleInit {
         learnerName: profile?.displayName || `Học viên (${p.userId.substring(0, 5)})`,
         learnerAvatar: profile?.avatarUrl,
         role: p.role,
-        connectionStatus: p.connectionStatus,
+        connectionStatus: effectiveStatus,
         joinedAt: p.joinedAt,
-        leftAt: p.leftAt,
+        leftAt: p.leftAt || (effectiveStatus === ConnectionStatus.DISCONNECTED ? now : null),
         activeSeconds: activeSecs,
         freeSecondsRemaining: freeRemaining,
         paidMinutes: paidMins,
         creditsContributed: credits,
       };
     });
+
+    // Dọn dẹp ngầm các participant đã rớt mạng quá 35s mà chưa kịp gọi leave
+    for (const p of dedupedParticipants) {
+      if (p.connectionStatus === ConnectionStatus.ONLINE) {
+        const lastActivity = p.lastHeartbeatAt
+          ? new Date(p.lastHeartbeatAt).getTime()
+          : new Date(p.joinedAt).getTime();
+        const gap = Math.max(0, Math.floor((now.getTime() - lastActivity) / 1000));
+        if (gap > 35) {
+          this.participantRepo
+            .update(
+              { id: p.id },
+              { connectionStatus: ConnectionStatus.DISCONNECTED, leftAt: now },
+            )
+            .catch(() => {});
+        }
+      }
+    }
 
     const totalPoolCredits = learners.reduce((sum, l) => sum + l.creditsContributed, 0);
 

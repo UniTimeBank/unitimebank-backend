@@ -67,6 +67,19 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         timestamp: new Date().toISOString(),
       });
 
+      if (userId) {
+        this.sessionClient.emit('session.recordParticipantDisconnected', {
+          roomId,
+          userId,
+        });
+        nsp.to(`room_${roomId}`).emit('escrow-metering-update', {
+          roomId,
+          userId,
+          connectionStatus: 'DISCONNECTED',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       if (role === 'MENTOR') {
         this.logger.warn(`Host ${userId} disconnected from socket room_${roomId}`);
         const now = new Date();
@@ -170,6 +183,19 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
       socketId: client.id,
       timestamp: new Date().toISOString(),
     });
+
+    if (userId) {
+      this.sessionClient.emit('session.recordParticipantDisconnected', {
+        roomId,
+        userId,
+      });
+      nsp.to(`room_${roomId}`).emit('escrow-metering-update', {
+        roomId,
+        userId,
+        connectionStatus: 'DISCONNECTED',
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     if (client.data.role === 'MENTOR') {
       const now = new Date();
