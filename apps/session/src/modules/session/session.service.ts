@@ -34,6 +34,7 @@ import {
   CreateGroupRoomDto,
   GetActiveGroupRoomsQueryDto,
   LiveKitTokenResponse,
+  GroupRoomPreviewResponse,
 } from '@app/contracts/session';
 import { EventType, HostActionType as LocalHostActionType } from './enums';
 import { NOTIFICATION_EVENTS } from '@app/contracts/events';
@@ -700,6 +701,68 @@ export class SessionService implements OnModuleInit {
   }
 
   /**
+   * GET /rooms/group/:roomId/preview — Lấy thông tin xem trước phòng học nhóm cho màn hình chờ (Pre-Join Lobby)
+   * Tuyệt đối KHÔNG tạo bản ghi RoomParticipant, KHÔNG kiểm tra trừ ví, KHÔNG sinh LiveKit token.
+   */
+  async getGroupRoomPreview(
+    userId: string,
+    roomId: string,
+  ): Promise<GroupRoomPreviewResponse> {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room) {
+      throw new NotFoundException('Không tìm thấy phòng học nhóm.');
+    }
+
+    if (room.status !== RoomStatus.IN_PROGRESS) {
+      throw new BadRequestException('Phòng học nhóm này hiện không hoạt động hoặc đã kết thúc.');
+    }
+
+    const isHost = room.mentorId === userId;
+    const role = isHost ? ParticipantRole.MENTOR : ParticipantRole.LEARNER;
+
+    // Kiểm tra xem user có từng bị host chặn/kick trong phòng này chưa
+    const existingParticipant = await this.participantRepo.findOne({
+      where: { roomId: room.id, userId },
+    });
+    if (existingParticipant?.isBlocked) {
+      throw new ForbiddenException(
+        existingParticipant.blockedReason
+          ? `Bạn đã bị chủ phòng chặn vĩnh viễn khỏi phòng học này: ${existingParticipant.blockedReason}`
+          : 'Bạn đã bị chủ phòng chặn vĩnh viễn khỏi phòng học này do vi phạm quy chế.',
+      );
+    }
+    if (existingParticipant?.isKicked) {
+      throw new ForbiddenException('Bạn đã bị mời ra khỏi phòng học này.');
+    }
+
+    const hostPresence = await this.getHostPresence(room.id);
+    const mentorProfile = await this.getUserProfileInfo(room.mentorId);
+
+    const currentParticipants = await this.participantRepo.count({
+      where: { roomId: room.id, connectionStatus: ConnectionStatus.ONLINE },
+    });
+
+    return {
+      roomId: room.id,
+      roomType: RoomType.GROUP,
+      title: room.title || 'Lớp học nhóm trực tuyến',
+      category: room.category,
+      skills: room.skills,
+      coverImage: room.coverImage,
+      mentorId: room.mentorId,
+      mentorName: mentorProfile.displayName || 'Người hướng dẫn',
+      mentorAvatar: mentorProfile.avatarUrl,
+      currentParticipants,
+      maxParticipants: room.maxParticipants,
+      isHost,
+      role,
+      isHostPresent: hostPresence.isHostPresent,
+      hostDisconnectedAt: hostPresence.hostDisconnectedAt,
+      hostAbsentSecondsRemaining: hostPresence.hostAbsentSecondsRemaining,
+    };
+  }
+
+  /**
    * POST /rooms/group/:roomId/join — Learner tham gia phòng học nhóm
    */
   async joinGroupRoom(userId: string, roomId: string): Promise<LiveKitTokenResponse> {
@@ -1083,7 +1146,31 @@ export class SessionService implements OnModuleInit {
       }
     }
 
-    const totalPoolCredits = learners.reduce((sum, l) => sum + l.creditsContributed, 0);
+    // Chỉ giữ lại những học viên THỰC TẾ:
+    // Đang ONLINE hoặc đã có thời gian học thực tế (>0s) hoặc có đóng góp Credit (>0).
+    // Tuyệt đối loại bỏ các bản ghi rác/vãng lai (0s, 0 credit, đã ngắt kết nối).
+    const actualLearners = learners.filter(
+      (l) =>
+        l.connectionStatus === ConnectionStatus.ONLINE ||
+        l.activeSeconds > 0 ||
+        l.creditsContributed > 0,
+    );
+
+    // Đồng thời dọn dẹp các bản ghi rác này trong database để không để lại vết
+    const ghostParticipants = dedupedParticipants.filter(
+      (p) =>
+        p.connectionStatus !== ConnectionStatus.ONLINE &&
+        (p.activeSeconds || 0) === 0 &&
+        (p.creditCharged || 0) === 0,
+    );
+    if (ghostParticipants.length > 0) {
+      const ghostIds = ghostParticipants.map((g) => g.id);
+      this.participantRepo.delete(ghostIds).catch((err) => {
+        this.logger.warn(`Failed to clean up ghost participants:`, err);
+      });
+    }
+
+    const totalPoolCredits = actualLearners.reduce((sum, l) => sum + l.creditsContributed, 0);
 
     return {
       roomId: room.id,
@@ -1092,11 +1179,11 @@ export class SessionService implements OnModuleInit {
       status: room.status,
       openedAt: room.openedAt || new Date(),
       accumulatedCredits: totalPoolCredits,
-      totalLearnersCount: learners.length,
-      activeLearnersCount: learners.filter(
+      totalLearnersCount: actualLearners.length,
+      activeLearnersCount: actualLearners.filter(
         (l) => l.connectionStatus === ConnectionStatus.ONLINE,
       ).length,
-      learners,
+      learners: actualLearners,
     };
   }
 
@@ -1123,10 +1210,16 @@ export class SessionService implements OnModuleInit {
     const [items, total] = await qb.getManyAndCount();
 
     const enriched = items.map((r) => {
-      const activeCount = (r.participants || []).filter(
+      const actualParticipants = (r.participants || []).filter(
+        (p) =>
+          p.connectionStatus === ConnectionStatus.ONLINE ||
+          (p.activeSeconds || 0) > 0 ||
+          (p.creditCharged || 0) > 0,
+      );
+      const activeCount = actualParticipants.filter(
         (p) => p.connectionStatus === ConnectionStatus.ONLINE,
       ).length;
-      const participantUserIds = (r.participants || []).map((p) => p.userId);
+      const participantUserIds = actualParticipants.map((p) => p.userId);
       return {
         roomId: r.id,
         mentorId: r.mentorId,

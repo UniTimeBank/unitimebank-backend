@@ -75,6 +75,19 @@ export class SessionController {
     }
   }
 
+  @MessagePattern('session.getGroupRoomPreview')
+  async getGroupRoomPreview(@Payload() data: { userId: string; roomId: string }) {
+    try {
+      return await this.sessionService.getGroupRoomPreview(data.userId, data.roomId);
+    } catch (err: any) {
+      this.logger.error(`[session.getGroupRoomPreview] Error:`, err?.stack || err);
+      throw new RpcException({
+        status: err?.status || err?.statusCode || 400,
+        message: err?.message || 'Không thể xem thông tin phòng học nhóm',
+      });
+    }
+  }
+
   @MessagePattern('session.joinGroup')
   async joinGroup(@Payload() data: { userId: string; roomId: string }) {
     try {

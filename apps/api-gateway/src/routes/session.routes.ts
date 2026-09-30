@@ -92,6 +92,15 @@ export class SessionRoutes {
     return this.sessionClient.send('session.createGroup', { userId, dto });
   }
 
+  @Get('group/:roomId/preview')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Xem trước thông tin phòng học nhóm cho màn hình chờ (Pre-Join Lobby)' })
+  async getGroupRoomPreview(@Param('roomId') roomId: string, @Req() req: any) {
+    const userId = req.user.id;
+    return this.sessionClient.send('session.getGroupRoomPreview', { userId, roomId });
+  }
+
   @Post('group/:roomId/join')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
