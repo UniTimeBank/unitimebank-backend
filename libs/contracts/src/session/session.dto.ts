@@ -143,5 +143,6 @@ export interface LiveKitTokenResponse {
   isHostPresent?: boolean;
   hostDisconnectedAt?: Date | string | null;
   hostAbsentSecondsRemaining?: number;
+  currentParticipants?: number;
 }
 

@@ -742,19 +742,10 @@ export class SessionService implements OnModuleInit {
         throw new ForbiddenException('Bạn đã bị mời ra khỏi phòng học này.');
       }
       const now = new Date();
-      // Nếu reconnect / F5 khi đang online, cộng dồn thời gian đã trôi qua chính xác
-      if (participant.connectionStatus === ConnectionStatus.ONLINE && participant.joinedAt) {
-        const lastAnchor = participant.lastHeartbeatAt || participant.joinedAt;
-        const sessionElapsed = Math.max(
-          0,
-          Math.floor((now.getTime() - new Date(lastAnchor).getTime()) / 1000),
-        );
-        participant.activeSeconds =
-          (participant.activeSeconds || 0) +
-          Math.min(sessionElapsed, this.GROUP_HEARTBEAT_MAX_GAP_SECONDS);
-      }
+      // Chú ý: activeSeconds chỉ được tích lũy chuẩn xác qua socket metering-tick (syncGroupMetering)
+      // khi người dùng đã thực sự bấm "Vào phòng học ngay". Tuyệt đối không tự cộng dồn khi ở phòng chờ hoặc F5.
       participant.connectionStatus = ConnectionStatus.ONLINE;
-      participant.joinedAt = now;
+      participant.joinedAt = participant.joinedAt || now;
       participant.leftAt = null as any;
       participant.lastHeartbeatAt = now;
       await this.participantRepo.save(participant);
@@ -803,6 +794,13 @@ export class SessionService implements OnModuleInit {
 
     const mentorProfile = isMentor ? userProfile : await this.getUserProfileInfo(room.mentorId);
 
+    const currentParticipants = await this.participantRepo.count({
+      where: {
+        roomId: room.id,
+        connectionStatus: ConnectionStatus.ONLINE,
+      },
+    });
+
     return {
       roomId: room.id,
       roomType: RoomType.GROUP,
@@ -827,6 +825,7 @@ export class SessionService implements OnModuleInit {
         ? new Date(room.hostDisconnectedAt).toISOString()
         : null,
       hostAbsentSecondsRemaining,
+      currentParticipants,
     };
   }
 
