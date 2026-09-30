@@ -94,4 +94,12 @@ export class GetBookingsQueryDto {
   @ApiPropertyOptional({ example: 'CONFIRMED', description: 'Lọc theo trạng thái' })
   @IsOptional()
   status?: string;
+
+  @ApiPropertyOptional({ example: 1, description: 'Trang cần lấy' })
+  @IsOptional()
+  page?: number;
+
+  @ApiPropertyOptional({ example: 10, description: 'Số bản ghi mỗi trang' })
+  @IsOptional()
+  limit?: number;
 }

@@ -688,6 +688,12 @@ export class BookingService implements OnModuleInit, OnModuleDestroy {
 
     qb.orderBy('booking.createdAt', 'DESC');
 
+    if (query.page && query.limit) {
+      const page = Math.max(1, Number(query.page));
+      const limit = Math.max(1, Number(query.limit));
+      qb.skip((page - 1) * limit).take(limit);
+    }
+
     const [items, total] = await qb.getManyAndCount();
 
     // Query message stats for these bookings

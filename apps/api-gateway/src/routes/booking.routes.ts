@@ -193,6 +193,8 @@ export class BookingRoutes {
     const params = new URLSearchParams();
     if (query.role) params.append('role', query.role);
     if (query.status) params.append('status', query.status);
+    if (query.page) params.append('page', String(query.page));
+    if (query.limit) params.append('limit', String(query.limit));
     return this.bookingClient.getMyBookings(params.toString(), this.getAuthHeaders(req));
   }
 
