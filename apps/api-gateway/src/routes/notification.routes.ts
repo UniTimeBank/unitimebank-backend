@@ -71,6 +71,17 @@ export class NotificationRoutes {
     return this.notificationClient.savePushToken(req.user.id, body.token, body.platform);
   }
 
+  @Post('test-push')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Gửi thông báo đẩy thử nghiệm (Push test) tới thiết bị' })
+  testPush(
+    @Req() req: any,
+    @Body() body: { title?: string; body?: string },
+  ) {
+    return this.notificationClient.testPush(req.user.id, body?.title, body?.body);
+  }
+
   @Get('my')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

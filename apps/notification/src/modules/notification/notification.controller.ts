@@ -54,6 +54,17 @@ export class NotificationController {
     );
   }
 
+  @Post('test-push')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Gửi thông báo đẩy thử nghiệm (Push test)' })
+  async testPush(
+    @Req() req: any,
+    @Body() body: { title?: string; body?: string },
+  ) {
+    return this.notificationService.testPush(req.user.id, body?.title, body?.body);
+  }
+
   @Patch(':id/read')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -119,5 +130,12 @@ export class NotificationController {
   @MessagePattern('notification.delete')
   async handleDelete(@Payload() data: { userId: string; id: string }) {
     return this.notificationService.deleteNotification(data.userId, data.id);
+  }
+
+  @MessagePattern('notification.testPush')
+  async handleTestPush(
+    @Payload() data: { userId: string; title?: string; body?: string },
+  ) {
+    return this.notificationService.testPush(data.userId, data.title, data.body);
   }
 }

@@ -152,6 +152,34 @@ export class NotificationService {
   }
 
   /**
+   * Bắn thông báo thử nghiệm trực tiếp cho tài khoản
+   */
+  async testPush(
+    userId: string,
+    title?: string,
+    body?: string,
+  ): Promise<{ success: boolean; message: string; tokensCount: number }> {
+    const activeTokens = await this.deviceTokenRepo.find({
+      where: { userId, isActive: true },
+    });
+
+    const notif = await this.createNotification({
+      userId,
+      title: title || '🔔 UniTime Push Test',
+      content:
+        body ||
+        `Đây là thông báo thử nghiệm từ hệ thống UniTime Bank vào lúc ${new Date().toLocaleTimeString('vi-VN')}!`,
+      type: 'SYSTEM',
+    });
+
+    return {
+      success: true,
+      message: `Đã gửi thông báo test tới ${activeTokens.length} thiết bị đang hoạt động.`,
+      tokensCount: activeTokens.length,
+    };
+  }
+
+  /**
    * Bắn thông báo đẩy Remote Push Notification (FCM qua Expo Push Service)
    */
   private async sendRemotePush(

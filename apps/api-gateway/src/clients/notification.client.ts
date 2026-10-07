@@ -71,4 +71,19 @@ export class NotificationClient {
       platform,
     });
   }
+
+  async testPush(
+    userId: string,
+    title?: string,
+    body?: string,
+  ): Promise<{ success: boolean; message: string; tokensCount: number }> {
+    return this.send<{ success: boolean; message: string; tokensCount: number }>(
+      'notification.testPush',
+      {
+        userId,
+        title,
+        body,
+      },
+    );
+  }
 }
