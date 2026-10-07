@@ -158,7 +158,7 @@ export class NotificationService {
     userId: string,
     title?: string,
     body?: string,
-  ): Promise<{ success: boolean; message: string; tokensCount: number }> {
+  ): Promise<{ success: boolean; message: string; tokensCount: number; pushResult?: any }> {
     const activeTokens = await this.deviceTokenRepo.find({
       where: { userId, isActive: true },
     });
@@ -172,10 +172,18 @@ export class NotificationService {
       type: 'SYSTEM',
     });
 
+    const pushResult = await this.sendRemotePush(
+      userId,
+      notif.title,
+      notif.body,
+      { notificationId: notif.id, type: 'TEST_PUSH' },
+    );
+
     return {
       success: true,
       message: `Đã gửi thông báo test tới ${activeTokens.length} thiết bị đang hoạt động.`,
       tokensCount: activeTokens.length,
+      pushResult,
     };
   }
 
@@ -187,14 +195,15 @@ export class NotificationService {
     title: string,
     body: string,
     data?: any,
-  ): Promise<void> {
+  ): Promise<any> {
     try {
       const activeTokens = await this.deviceTokenRepo.find({
         where: { userId, isActive: true },
       });
 
       if (!activeTokens || activeTokens.length === 0) {
-        return;
+        this.logger.warn(`No active push tokens found for user [${userId}]`);
+        return { status: 'NO_TOKENS', message: 'No registered device tokens' };
       }
 
       const messages = activeTokens.map((t) => ({
@@ -219,8 +228,10 @@ export class NotificationService {
 
       const responseData = await res.json();
       this.logger.log(`Dispatched remote push to user [${userId}]: ${JSON.stringify(responseData)}`);
+      return responseData;
     } catch (pushErr: any) {
       this.logger.warn(`Remote push error for user [${userId}]: ${pushErr?.message || pushErr}`);
+      return { error: pushErr?.message || pushErr };
     }
   }
 
